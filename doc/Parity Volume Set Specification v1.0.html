@@ -1,0 +1,171 @@
+
+<!-- saved from url=(0092)http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<link rel="stylesheet" type="text/css" href="./Parity Volume Set Specification v1.0_files/article-parchive.css" title="Parchive Docs Stylesheet">
+<title>Parity Volume Set Specification v1.0</title><meta name="generator" content="DocBook XSL Stylesheets V1.50.0"></head><body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="article"><div class="titlepage"><div><h1 class="title"><a name="i__134603560_2"></a>Parity Volume Set Specification v1.0</h1></div><div><div class="authorgroup"><div class="author"><h3 class="author">Stefan Wehlus</h3></div></div></div><div><div class="authorgroup"><p class="othercredit">Tobias Reiper</p></div></div><div><div class="authorgroup"><p class="othercredit">Kilroy Balore</p><p class="othercredit">Willem Monsuwe</p><p class="othercredit">Karl Vogel</p><p class="othercredit">Ryan Gallagher</p></div></div><div><p class="copyright">Copyright © 2001, 2002, 2003 
+        The Authors
+      </p></div><div><div class="legalnotice"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        The introduced principles, the file format secification and it's
+        details can be used free by everyone for any type of software. There
+        will be no license or other limitations.
+      </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        It doesn't matter, if you are writing open, closed or shared
+        source, public domain, freeware, shareware or commercial software
+        - you can use this spec.
+      </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        But if you use the PAR/PXX file format and want to make changes
+        to the format, you have to discuss them with the project (<a xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" href="http://parchive.sourceforge.net/" target="_top">http://parchive.sourceforge.net</a>)
+        to maintain compatibility.
+      </p></div></div><div><p class="pubdate">October 14th, 2001</p></div><div><div class="revhistory"><table border="1" width="100%" summary="Revision history"><tbody><tr><th align="left" valign="top" colspan="2"><b>Revision History</b></th></tr><tr><td align="left">Revision 1.0</td><td align="left">April 2nd, 2003</td></tr><tr><td align="left" colspan="2">Formatting Changes (Docbook Simplified by Ryan)</td></tr><tr><td align="left">Revision 1.0</td><td align="left">October 14th, 2001</td></tr><tr><td align="left" colspan="2">Stable</td></tr><tr><td align="left">Revision 0.9</td><td align="left">October 7th, 2001</td></tr><tr><td align="left" colspan="2">Pass 3 draft revision</td></tr><tr><td align="left">Revision 0.3</td><td align="left">July 16th, 2001</td></tr><tr><td align="left" colspan="2">Pass 2 draft revision</td></tr><tr><td align="left">Revision 0.1</td><td align="left">July 12th, 2001</td></tr><tr><td align="left" colspan="2">Initial Submission, by Beaker</td></tr></tbody></table></div></div><hr></div><div class="toc"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><b>Table of Contents</b></p><dl><dt><a href="http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html#s1">Overview</a></dt><dt><a href="http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html#s2">General Description</a></dt><dt><a href="http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html#s3">Format Specifications for a .PAR/.PXX File</a></dt><dd xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><dl><dt><a href="http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html#i__134603560_1418">Comments</a></dt></dl></dd><dt><a href="http://parchive.sourceforge.net/docs/specifications/parity-volume-spec-1.0/article-spec.html#s4">Implementation Issues</a></dt></dl></div><div class="section"><div class="titlepage"><div><h2 class="title" style="clear: both"><a name="s1"></a>Overview</h2></div></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      The following document describes a file format called Parity
+      Volume Set.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      A Parity Volume Set provides RAID like parity records for a given
+      number of files. With this parity records it is possible to restore
+      missing files of the set.
+    </p><div class="example"><a name="ex-dataset"></a><p class="title"><b>Example 73. An example file set</b></p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        You have 10 data files:
+      </p><div class="informaltable"><table border="1"><colgroup xmlns:lxslt="http://xml.apache.org/xslt" xmlns:xtbl="com.nwalsh.xalan.Table" xmlns:stbl="http://nwalsh.com/xslt/ext/com.nwalsh.saxon.Table" xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><col></colgroup><thead valign="middle"><tr><th>Data Files</th></tr></thead><tbody><tr><td>Foobar.d01</td></tr><tr><td>Foobar.d02</td></tr><tr><td>Foobar.d03</td></tr><tr><td>Foobar.d04</td></tr><tr><td>Foobar.d05</td></tr><tr><td>Foobar.d06</td></tr><tr><td>Foobar.d07</td></tr><tr><td>Foobar.d08</td></tr><tr><td>Foobar.d09</td></tr><tr><td>Foobar.d10</td></tr></tbody></table></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+        With a program using this specification you can calculate parity
+        volumes for these files.
+      </p><div class="informaltable"><table border="1"><colgroup xmlns:lxslt="http://xml.apache.org/xslt" xmlns:xtbl="com.nwalsh.xalan.Table" xmlns:stbl="http://nwalsh.com/xslt/ext/com.nwalsh.saxon.Table" xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><col></colgroup><thead valign="middle"><tr><th>Parity Volumes</th></tr></thead><tbody><tr><td>Foobar.p01</td></tr><tr><td>Foobar.p02</td></tr><tr><td>Foobar.p03</td></tr></tbody></table></div></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      The parity volumes contain a reed solomon checksum of the data of the
+      data files. So if a file is missing or corrupt, it can be reconstructed
+      out of the remaining data files and the parity volumes. Any file of this
+      set can be reconstructed with any parity volume. You just need as much
+      parity volumes, as files you are missing.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      For instance, in the example above, Foobar.d03 is lost. So it is
+      possible to restore Foobar.d03 using the remaining data files and one
+      parity volume. It doesn't matter, which parity volume
+      (p01/p02/p03) - everyone will do...
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      In case you miss 2 files, you need 2 parity volumes. What parity volumes
+      and their combination (p01+p02/p01+p03/p02+p03) doesn't matter too
+      - you just need two of them. (They have to be different: renaming
+      a copy of foobar.p01 to foobar.p02 and using it with foobar.p01 to
+      restore will not work...)
+    </p></div><div class="section"><div class="titlepage"><div><h2 class="title" style="clear: both"><a name="s2"></a>General Description</h2></div></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      A parity volume set consists of two parts. First there is a .PAR file
+      (the index file).
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      It contains information about the files, which are "saved" in the
+      volume sets:
+    </p><div class="itemizedlist"><ul type="opencircle"><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">what files are stored in the set</p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">their checksums (MD5)</p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">their size</p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">their filename</p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">a general comment for the set</p></li></ul></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      Second there are the parity volume files. They are named .P00, .P01,
+      P02..... PXX. (After .P99, there will be .Q00...)
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      They contain:
+    </p><div class="itemizedlist"><ul type="opencircle"><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">the same information as the PAR file (besides the comment)</p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">the calculated parity data of the stored files</p></li></ul></div></div><div class="section"><div class="titlepage"><div><h2 class="title" style="clear: both"><a name="s3"></a>Format Specifications for a .PAR/.PXX File</h2></div></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>The data is stored in ‘Intel Notation’.</em></span>
+    </p><div class="table"><a name="table-formatspec"></a><p class="title"><b>Table 145. File Format Specification</b></p><table summary="File Format Specification" border="1"><colgroup xmlns:lxslt="http://xml.apache.org/xslt" xmlns:xtbl="com.nwalsh.xalan.Table" xmlns:stbl="http://nwalsh.com/xslt/ext/com.nwalsh.saxon.Table" xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><col><col><col></colgroup><thead><tr><th align="left">Offset</th><th align="left">Type (Size)</th><th align="left">Data</th></tr></thead><tbody><tr><td align="left">0x0000</td><td align="left">8 Bytes</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">Identification String:</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">‘PAR’\0</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">Comment:</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">The string ‘PAR’ followed by 5 null bytes.</p></td></tr><tr><td align="left">0x0008</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">Version Number</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">The version number consists of two parts.</p><div class="itemizedlist"><ul type="opencircle"><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    The low Dword (bit 0..31) is the version - $00010000
+                    for v01.00
+                  </p></li><li style="list-style-type: opencircle"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    The high Dword (bit 32..63) is a identifier for the
+                    generating program. The client can use it to see, which
+                    program generated the parity volume set. This may come in
+                    handy, if your program needs to know, if it was the
+                    generator itself. (Maybe to see, if it can use some
+                    proprietary bits in the status register or to notify, if
+                    new versions are out...)
+                  </p></li></ul></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                The coding is ‘program’-‘version’-‘subversion’-‘subsubversion’.
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                ‘Program’ codes so far:
+              </p><div class="itemizedlist"><ul type="disc"><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">00 - Undefined</p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">01 - Mirror</p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">02 - PAR</p></li></ul></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                Example: Mirror 0.2.1 has $01000201 as program identifier.
+              </p></td></tr><tr><td align="left">0x0010</td><td align="left">16 Bytes</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">Control Hash</p><div class="itemizedlist"><ul type="disc"><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    a MD5 hash of the rest of the file starting from 0x0020 to
+                    the end
+                  </p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    used to detect a corrupt file.
+                  </p></li></ul></div></td></tr><tr><td align="left">0x0020</td><td align="left">16 Bytes</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">set hash</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">used as an identifier for the parity volume set</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">Creation:</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                Make a array of bytes (one dimendion, size=used files*16).
+                Then put the MD5 hashes (not the MD516k hashes) there,
+                starting with the first file. Use only the files, which are
+                included in the parity data (status bit 0 = 1). Then
+                calculate the MD5 hash of this array.
+              </p></td></tr><tr><td align="left">0x0030</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">number of files</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">the number of files stored in the parity volume set</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                (only the input data files - the parity volumes are not
+                counted)
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                The files, which are not stored in the parity data, but in the
+                file list for CRC checking, are counted too. So this is the
+                number of files in the file list.
+              </p></td></tr><tr><td align="left">0x0040</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">start offset of the file list</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the start offset of the list of stored files</em></span>
+              </p></td></tr><tr><td align="left">0x0048</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">file list size</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the size of the file list in bytes</em></span>
+              </p></td></tr><tr><td align="left">0x0050</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">start offset of the data</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the start offset of the data area</em></span>
+              </p></td></tr><tr><td align="left">0x0058</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">data size</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the size of the data area in bytes</em></span>
+              </p></td></tr><tr><td align="left">0x0060</td><td align="left">...</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">file list</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>this is the start of the list of the saved files</em></span>
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>it consists of file entrys</em></span>
+              </p></td></tr></tbody></table></div><div class="table"><a name="entry-spec"></a><p class="title"><b>Table 252. A File Entry has the following format:</b></p><table summary="A File Entry has the following format:" border="1"><colgroup xmlns:lxslt="http://xml.apache.org/xslt" xmlns:xtbl="com.nwalsh.xalan.Table" xmlns:stbl="http://nwalsh.com/xslt/ext/com.nwalsh.saxon.Table" xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><col><col><col></colgroup><thead><tr><th align="left">Offset</th><th align="left">Type (Size)</th><th align="left">Data</th></tr></thead><tbody><tr><td align="left">0x0000</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">entry size</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the size of the file list entry in bytes</em></span>
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>counting starts at 1, this record is counted too</em></span>
+              </p></td></tr><tr><td align="left">0x0008</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">status field</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>64 bits for status flags or numbers</em></span></p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>currently only bit 0 and 1 are used:</em></span></p><div class="itemizedlist"><ul type="disc"><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">bit0 = 0 - file is not saved in the parity volume set</p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">bit0 = 1 - file is saved in the parity volume set</p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">bit1 = 0 - file is not checked successfully yet</p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">bit1 = 1 - file was successfully checked</p></li></ul></div></td></tr><tr><td align="left">0x0010</td><td align="left">1 QWord</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">size</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the size of the stored file in bytes</em></span></p></td></tr><tr><td align="left">0x0018</td><td align="left">16 Bytes</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">MD5 Hash</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>a MD5 hash of the whole file</em></span>
+              </p></td></tr><tr><td align="left">0x0028</td><td align="left">16 Bytes</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">16k MD5 hash</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>a MD5 hash of the first 16384 Bytes of the file</em></span>
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>if the file is smaller than 16k, only the exisdting bytes are used</em></span>
+              </p></td></tr><tr><td align="left">0x0038</td><td align="left">X Words</td><td align="left"><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">filename</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>the full filename with extension in Unicode</em></span>
+              </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">("foobar.d01")</p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>paths are not allowed</em></span></p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>no end indicators, you have to compute the size out of the entrysize (chars = (entrysize - 0x38) DIV 2)</em></span>
+              </p></td></tr></tbody></table></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      After the file list, the data area starts.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      For the PAR file, the data area contains a comment for the volume set. The
+      comment is stored in uniode, control characters are allowed.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      For the Pxx files, the data area contains the checksum data.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      Comupting of the checksum data:
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      You have <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>n</em></span> files and want to create
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>m</em></span> parity data. So you create a data field
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>D1..Dm</em></span>, where <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>D1</em></span> is the first
+      byte of file1, <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>D2</em></span> is the first byte of file2,
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>D3</em></span> is the first byte of file 3...
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>Dn</em></span> is the first byte of file
+      <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>n</em></span>.  For this field you create a field of m parity
+      checksums <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>C1..Cm</em></span>. <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>C1</em></span> is
+      stored as the first parity byte of .p01, <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>C2</em></span> is
+      stored as the first parity byte of .p02, <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>C3</em></span> is
+      stored as the first parity byte of .p03... <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>Cm</em></span> is
+      stored as the first parity byte of .pm.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      Then process the second byte of all files and so on, until you reached the end of the biggest input file. If a file has no bytes left, use 0 for the calculation. So the size of the parity data will be the size of the biggest file stored in the parity volume set.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      For calculating the checksums, the Reed-Solomon algorithm is used. A good description of this algorithm for programmers is <a xmlns:doc="http://nwalsh.com/xsl/documentation/1.0" href="http://www.cs.utk.edu/~plank/plank/papers/CS-96-332.html" target="_top">http://www.cs.utk.edu/~plank/plank/papers/CS-96-332.html</a>.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      The "wordsize" is 8 bit, so you calculate with Bytes only. (This restricts the number of files + parity volumes to be less than 256.)
+    </p><div class="section"><div class="titlepage"><div><h3 class="title"><a name="i__134603560_1418"></a>Comments</h3></div></div><div class="itemizedlist"><ul type="disc"><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>Why the 16k MD5 hashes?</em></span>
+          </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            One demanded feature is, that the program will find its files even if the filenames are changed. So maybe, if the program won't find the files due to renaming, you click the "search" button and then it checks the MD5 hashes of all files in the directory to find his files. But with large numbers of large files this will take a long time. With the 16k hashes, the program only needs to check the first 16k of each file. This will be much faster. If it finds a file, it can make a full hash too, just to be sure...
+          </p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>Why the file is saved - status flag?</em></span>
+          </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            Maybe the PAR file is only used to provide file comments and checksums. The files are not saved in a PXX volume then.
+          </p></li><li><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            <span xmlns:xlink="http://www.w3.org/1999/xlink" class="emphasis"><em>Why the file is checked - status flag?</em></span>
+          </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+            So you can build in a function, that your program skips already successfully checked files. Repeated checking of the same set will be faster this way. (Like with QuickSFV)
+          </p></li></ul></div></div></div><div class="section"><div class="titlepage"><div><h2 class="title" style="clear: both"><a name="s4"></a>Implementation Issues</h2></div></div><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      A file present in the file list doesn't have to be stored in the parity data at all times. So, some (or all) files can be just for checksum control or file comments in the PAR file. (In case, only a .SFV or .NFO functionality is needed...)
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      The saved files can be of any type and size.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      There are no informations about the parity volumes stored in the header. So the program has to scan the directory for present parity volumes. They can be identified with the set hash.
+    </p><p xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+      There is no explicit rule for the order of the entrys in the filelist, but I recommend to sort the filenames in ascending order.
+    </p></div></div>
+</body></html>

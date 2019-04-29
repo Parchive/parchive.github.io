@@ -1,0 +1,116 @@
+p {
+    margin-left : 1em;
+    margin-right : 1em;
+}
+.pubdate {
+    display : block;
+    clear : both;
+    font-weight : bold;
+    font-size : 14px;
+}
+.emphasis {
+}
+.othercredit {
+    font-style : italic;
+    font-size : 12pt;
+    margin-top : 0px;
+}
+body {
+    background-color : silver;
+}
+table {
+    border : 1px solid black;
+    font-size : inherit;
+}
+td {
+    background-color : white;
+    border : 1px solid silver;
+    padding : 2px;
+    font-size : inherit;
+}
+hr {
+    display : none;
+}
+div.article {
+    font-size : 12pt;
+    margin-top : 1em;
+    margin-left : 1em;
+    width : 750px;
+    background-color : white;
+    padding-bottom : 3em;
+    min-height : 10in;
+}
+div.titlepage {
+    width : 725px;
+    position : relative;
+    left : -.75em;
+    margin-left : 1em;
+    margin-right : 1em;
+}
+div.authorgroup {
+    text-align : right;
+    margin-right : 3em;
+}
+div.author {
+    font-size : 12pt;
+    display : inline;
+    font-style : italic;
+}
+.copyright {
+    display : block;
+    margin-left : 1em;
+}
+div.legalnotice {
+    display : block;
+    font-variant : small-caps;
+    border : 1px dashed black;
+    margin-left : 1em;
+}
+div.revhistory {
+    border : 1px dashed black;
+    font-size : 10pt;
+    margin-bottom : 1em;
+    margin-left : 1em;
+}
+div.toc {
+    padding-left : 1em;
+    border-top : 5px solid black;
+    font-size : 14px;
+    margin-left : 1em;
+    margin-right : 1em;
+}
+div.section {
+    margin-bottom : 3em;
+    margin-top : 1em;
+    border-top : 2px dotted silver;
+}
+div.appendix{
+    margin-bottom : 3em;
+    margin-top : 1em;
+    border-top : 2px dotted silver;
+}
+.title {
+    padding : 2px;
+    border-bottom : 2px solid black;
+}
+div.example {
+    margin-left : 3em;
+    margin-right : 3em;
+    border : 1px dashed black;
+    padding : 1em;
+}
+div.table {
+    margin-left : 5em;
+    margin-right : 5em;
+    margin-bottom : 1em;
+}
+div.informaltable {
+    margin-left : 1em;
+    margin-right : 1em;
+}
+div.itemizedlist {
+    margin-left : 1em;
+}
+li {
+    marker-offset : 1em;
+}
