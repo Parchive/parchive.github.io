@@ -1,9 +1,197 @@
 <!DOCTYPE html>
 <html>
-    <head>
+
+  
+
+  <head>
     <title>Parchive: Parity Archive Volume Set</title>
-    </head>
-    <body>
-        The new home of Parchive
-    </body>
+
+<!-- CSS styling inside the HTML file.--> 
+<style>
+
+body {
+  background-color: #CCCCCC
+}
+
+
+/* The following is for the menu.
+
+Menu was stolen from
+  https://meldmerge.org/
+  https://www.w3schools.com/css/css_navbar.asp
+*/
+
+div#navbar {
+  background-color: #3465a4;
+}
+
+div#navbar ul {
+  display: block;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #333;
+}
+
+div#navbar ul li {
+  margin: 0 1.5em;
+  float: left;
+}
+
+div#navbar ul li a {
+  display: block;
+  color: white;
+  text-align: center;
+  padding: 14px 16px;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+/* Change the link color to #111 (black) on hover */
+div#navbar ul li a:hover {
+  background-color: red;
+}
+
+</style>
+
+    
+  </head>
+  
+  <body>
+    
+    <h1><img src="parchive_banner.gif" alt="Parchive"></h1>
+
+    <!-- div is used to invoke CSS styling -->
+    <div id="navbar">
+    <ul>
+      <li><a href="#home">Home</a></li>
+      <li><a href="#install">Install and Run</a></li>
+      <li><a href="#help">Help</a></li>
+      <li><a href="#doc">Specification</a></li>
+      <li><a href="#dev">Development</a></li>
+    </ul>
+    </div>
+
+
+    <a name="home"></a>
+    <h2>What is Parchive?</h2>
+
+    <p> Parchive is redundant file format.  If you lose part of your
+    file in transmission or in storage, you can use a Parchive file to
+    repair it.  It's like RAID for files instead of a whole file
+    system.  </p>
+
+    <p> Parchive's latest version is version 2.0 and its files have
+    the extension ".par2".  If you have a ".par2" file (or older
+    ".par" file) and want to repair the original file(s), you
+    can <a href="#install">install and run a client
+    program</a>. </p>
+    
+    <p> Has been around for 20 years and there have been millions of
+    "par2" clients downloaded.  "par2" is the de facto standard for
+    safely sending large files on Usenet (a.k.a., "network news") and
+    is built into many newsreaders.  It is also used for backups,
+    where people fear a CD/DVD/tape will get damaged or, when using
+    multiple media, a few will fail entirely.  </p>
+    
+    
+    <a name="install"></a>
+    <!-- clients, par2cmdline install and run for debian, ubuntu, etc. -->
+    <h2>Install and run a Parchive client</h2>
+
+    Parchive is a file format.  It can be read and written by many
+    different programs.  (We call these programs "clients".)  Below is
+    a list of some of them.
+
+    <h3> Windows clients </h3>
+
+    <ul>
+      <li> <p> <a href="http://www.quickpar.org.uk/">QuickPar</a> A graphical client written by Peter Clements.  Supports ".par" and ".par2" files.  Supports multiple languages. </p> </li>
+      
+      <li> <p> <a href="https://www.livebusinesschat.com/smf/index.php?board=396.0">MultiPar</a> A graphical client written by Yutaka Sawada.  Supports at least ".par2" files.  Supports at least English and Japanese.  <b>WARNING:</b> There is a scammer who controls multipar.eu and is the top search result.</p> </li>
+    </ul>
+    
+    <h3> OSX clients </h3>
+
+    <ul>
+      <li> <p> <a href="https://gp.home.xs4all.nl/Site/MacPAR_deLuxe.html">MacPAR deluxe</a> A graphical client.  Supports ".par" and ".par2" files. </p> </li>
+    </ul>
+    
+    <h3> Linux clients </h3>
+
+    <ul>
+      <li> <p> <a href="http://pypar2.silent-blade.org/">PyPar2</a> A graphical frontend for par2cmdline.  Supports ".par" and ".par2" files.  Supports multiple languages. </p> </li>
+
+      <li> <p> <b>par2cmdline</b> A command-line utility.  It is the reference implementation.  Supports ".par" and ".par2" files. </p> </li>
+
+    <!-- the attribute style="margin-left: 40px" indents the following paragraphs -->
+    <ul>
+      <li> <p style="margin-left: 40px"> <b>From source code</b> Use git to clone <a href="https://github.com/Parchive/par2cmdline">the source code</a>.  Follow the instructions in the <a href="https://raw.githubusercontent.com/Parchive/par2cmdline/master/INSTALL">INSTALL file</a>.  Repair files by running "par2 repair *.par2".</p> </li>
+
+      <li> <p style="margin-left: 40px"> <b>Ubuntu / MINT / Debian</b>  Install with "sudo apt install par2".  Repair files by running "par2 repair *.par2".</p> </li>
+
+      <li> <p style="margin-left: 40px"> <b>Arch / Antergos</b>  Install with "sudo pacman -S par2cmdline".  Repair files by running "par2 repair *.par2".</p> </li>
+    </ul>
+    </ul>
+    
+    <a name="help"></a>
+    <h2>Help with Parchive</h2>
+    <!-- forums, wiki, github issues -->
+
+    <p>Bugs and questions for graphical client should be directed to
+    that client's author.  The Parchive developers are only
+    responsible for the file format and the par2cmdline client.</p>
+
+    <p>Documentation for the par2cmdline client can be gotten by running "par2 --help" or "man par2" (or "par2cmdline --help" and "man par2cmdline"). </p>
+    
+    <p>Bugs in par2cmdline can be tracked on <a href="https://github.com/Parchive/par2cmdline/issues"> the Github project's issues page</a>. </p>
+
+    <p> Some help is available on <a href="http://parchive.sourceforge.net/"> the old website on Sourceforge </p>
+    
+    
+    <a name="doc"></a>
+    <h2>Documentation</h2>
+    <!-- specifications -->
+
+    <p> <a href="doc/Parity Volume Set Specification v2.0.html"> Specification for Parchive files, version 2</a>. </p>
+
+    <p> <a href="doc/Parity Volume Set Specification v1.0.html"> Specification for Parchive files, version 1</a> </p>
+
+    <p>Documentation for the par2cmdline client can be gotten by running "par2 --help" or "man par2" (or "par2cmdline --help" and "man par2cmdline"). </p>
+    
+    <p> <a href="http://parchive.sourceforge.net/"> The old website on Sourceforge</a> has some more information. </p>
+    
+    <a name="dev"></a>    
+    <h2>Development</h2>
+    <!-- source, mailing list, old site, Thanks, etc. -->
+
+    <p> Development of par2cmdline program and Parchive file specification are done at <a href="https://github.com/Parchive/par2cmdline">the Github project page</a>.</p>
+    <p> Special thanks to the people who worked on Parchive:
+<b> Par1 Specification Authors</b>
+    Stefan Wehlus,
+    Tobias Reiper,
+    Kilroy Balore,  
+    Willem Monsuwe,
+    Karl Vogel,
+    Ryan Gallagher,
+<b> Par2 Specification Authors</b>
+     Michael Nahas,
+     Peter Clements,
+     Paul Nettle,
+     Ryan Gallagher,
+<b> Admins</b>
+     Ike Devolder,
+     Ryan Gallagher,
+     Roger Harrison,
+     Jussi Kansanen,
+<b> Client Authors</b>
+     Peter Clements,
+     Howard Fukuda,
+     Loek Jehee,
+     Kerry Keal.
+<b> You all rock. </b>
+ </p>
+
+  </body>
 </html>
