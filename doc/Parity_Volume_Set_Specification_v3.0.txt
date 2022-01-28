@@ -5,6 +5,7 @@ Michael Nahas
 Started January 16th, 2020
 New Design, July 29th, 2021
 Updated based on feedback November 16th, 2021  (dropped streaming, added chunks)
+Updated November 26th, 2021  (complete, except for a few small details)
 
 \/ \/ \/ TODO \/ \/ \/
 
@@ -55,7 +56,7 @@ Major differences from Parchive 2.0 are:
 * support "incremental backups"
 * support files that work both as a Par3 file and another type.  For example, putting recovery data inside a ZIP, ISO 9600 disk image, or other file.
 * support for storing data inside a Par3 file (this was optional in Par 2.0)
-* support any Galois field that is a multiple of 2^8
+* support any Galois field that is a power of 2^8
 * support any linear code (Reed-Solomon, LDPC, random sparse matrix, etc.)
 * support for more than 2^16 blocks
 * support deduplication, where the same block appears in multiple files
@@ -148,7 +149,7 @@ All integers are little endian. (This is the default on x86 and x86-64 CPUs, but
 
 Strings are not NUL-terminated.  This is to prevent hackers from using stack-overflow attacks.  If an N-byte field contains an array, a null-terminated string can be created by copying the N-byte field into a character array of length N+1 and then the setting the N+1 character to '\0'.
 
-The lengths of arrays and strings are often implicit.  For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes.  
+The lengths of arrays and strings are often implicit.  For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes. 
 
 All strings are UTF-8.  WARNING: Writers of OSX/MacOS clients must take special care with UTF-8 filenames!  Unicode has multiple ways to encode the same string.  An e with an accent mark can be encoded as a single character (U+00e9) or two characters, one for the e (U+0065) and one for the accent mark (U+0301).  Par3 does not require a particular encoding.  Forcing a particular encoding is called "normalization" in the Unicode vocabulary.  Most file systems do not normalize filenames and just treat the UTF-8 as a sequence of bytes.  Par3 follows their practice.  However, HFS+ was Apple's default file system from 1998 to 2017 and it normalizes every filename.  Thus, if a Parchive 3.0 client writes a file with a UTF-8 filename, the HFS+ file system may change the filename.  Clients for OSX/MacOS should be aware of this possibility.  Apple's current default file system, APFS, does not do normalization.  
 
@@ -160,7 +161,7 @@ Par3 uses multiple hash functions.  The "rolling hash" is CRC32C.  It is used to
 
 The "fingerprint hash" is KangarooTwelve hash, a.k.a. K12 hash.  It is used to uniquely identify blocks.  If two blocks have the same fingerprint hash, they are assumed to have identical contents.  
 
-Every byte of a Par3 file is specified.  Padding between packets, if done at all, is specified to be zero bytes.  The order of items in all arrays is specified.
+Padding between packets, if done at all, is specified to be zero bytes.  The order of items in all arrays is specified.
 
 When discussing vectors and matrices, this document uses zero-indexing.  That is, the elements in a vector are at locations 0 through N-1.  (One-indexing, the usual convention in mathematics, has them at locations 1 through N.)
 
@@ -249,7 +250,7 @@ Length (bytes)	Type	Description
 8	InputSetID	The "parent" InputSetID, or zeros if none.
 16      fingerprint hash 	The checksum of the parent's Root packet, or random if none.
 8	unsigned int	block size in bytes
-8	unsigned int	The size of the Galois field in bytes.
+2	unsigned int	The size of the Galois field in bytes.
 ?	?-byte GF	The generator of the Galois field without its leading 1.
 
 
@@ -378,6 +379,11 @@ Otherwise, each input block's non-zero elements are generated and then shuffled 
 
 How to generate a B-byte random non-zero Galois field value:  If B is greater than 8-bytes, the 64-bit values from the random number generator are put into the Galois field value from lowest byte-index to highest.  For the last (B modulo 8) bytes, the lowest bits of the random 64-bit value are used.  This is the same as if the random value was taken modulo 2^(8*B).  Lastly, if the random value was zero, it should be ignored and completely regenerated.  
 
+The random number generator is a "Permuted congruential generator" that generates 64-bit values.  Specifically, it is "PCG-XSL-RR".  The seed goes into the lower bits of the state.  (The generator "PCG-RXS-M-XS" was also considered, but had too small a period.)
+
+state = state * multiplier + increment;
+uint32_t output = state >> (29 - (state >> 61))
+
 The final result is a matrix where every row has X randomly-located non-zero random values.  This will mean data from from each input block will be incorporated into X different recovery blocks.  
 
 
@@ -426,7 +432,7 @@ The File packet has a type value of "PAR FIL\0" (ASCII). The packet's body conta
 
 Table: File Packet Body Contents
 Length (bytes)	Type	Description
-2      unsigned int	length of filename
+2      unsigned int	length of filename in bytes
 ?      UTF-8 string    filename
 16     fingerprint hash	hash of the first 16kB of the file
 ?*?    {8-byte unsigned int, fingerprint hash or zeros, [OPTIONAL: 8-byte unsigned int], [OPTIONAL: rolling hash, fingerprint hash, 8-byte unsigned int; 8-byte unsigned int]}	chuck length, hash, [first block index], [tail hash, tail hash, tail block index, offset in block]
@@ -463,11 +469,11 @@ This packet represent a sub-directory holding files from the input set.
 
 Parchive 3.0's default behavior is to ignore all metadata except for the directory's name (and location in parent directories).   Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some file systems.  
 
-The File packet has a type value of "PAR DIR\0" (ASCII). The packet's body contains the following:
+The Directory packet has a type value of "PAR DIR\0" (ASCII). The packet's body contains the following:
 
 Table: Directory Packet Body Contents
 Length (bytes)	Type	Description
-2      unsigned int    length of string
+2      unsigned int    length of string in bytes
 ?      UTF-8 string    name of directory
 ?*16	fingerprint hash       checksums of File and Directory packets
 
@@ -546,10 +552,14 @@ The Link packet has a type value of "PAR LNK\0" (ASCII). The packet's body conta
 Table: Link Packet Body Contents
 Length (bytes)	Type	Description
 16	fingerprint hash        checksum of Directory or Root packet
-2      unsigned int    length of string
+2      unsigned int    length of string in bytes
 ?      UTF-8 string    name of symbolic link or hard link
-4      unsigned int    length of path
+4      unsigned int    length of path in bytes
 ?      {UTF-8 string}   path where NUL is the separator character
+
+TODO: add byte to indicate soft/hard
+
+TODO: what if Directory packet appears multiple times in the file tree?!   (This problem also affects permissions of duplicated files/directories!!!)
 
 The fingerprint hash is the location of the link, either a Directory packet or a Root packet.  
 
@@ -567,9 +577,9 @@ UNIX Permissions Packet
 
 This packet holds the metadata from a generic UNIX system for one or more files and directories.  It is based on Linux's EXT4 file system, but does not capture all the details of that system.  
 
-The UNIX File packet has a type value of "PAR UNX\0" (ASCII). The packet's body contains the following:
+The UNIX Permissions packet has a type value of "PAR UNX\0" (ASCII). The packet's body contains the following:
 
-Table: UNIX File Packet Body Contents
+Table: UNIX Permissions Packet Body Contents
 Length (bytes)	Type	Description
 8      signed int	atime, nanoseconds since the Epoch
 8      signed int	ctime, nanoseconds since the Epoch
@@ -609,7 +619,7 @@ This packet holds the metadata from a FAT file system for one or more files and 
 
 The FAT File packet has a type value of "PAR FAT\0" (ASCII). The packet's body contains the following:
 
-Table: UNIX File Packet Body Contents
+Table: FAT Permissions Packet Body Contents
 Length (bytes)	Type	Description
 1      bit field 	FileAttributes
 4      unsigned int	CreateTimestamp
@@ -620,6 +630,7 @@ Length (bytes)	Type	Description
 1      signed int	CreateUtcOffset
 1      signed int	LastModifiedUtcOffset
 1      signed int	LastAccessedUtcOffset
+16*?	fingerprint hash        checksum of File, Directory, or Link packet
 
 The first byte is the attributes bit field.  The bits are
 Table: Attributes bit field
@@ -650,6 +661,8 @@ Note: There is no LastAccessed10msIncrement.
 
 
 Permissions Grouping Packet
+
+TODO: rewrite the next paragaph.  "node" and "tree" are unclear.
 
 This packet represents a node in a tree containing all the file-system specific packets.  It exists so that the decoding client can determine when all file-system specific packets have been received.
 
@@ -729,7 +742,7 @@ Single-pass recovery is only possible in some cases.  If the packets do not arri
 
 Galois Field Encoding
 
-Parchive 3.0 supports any Galois field that is a multiple of 2^8.  That is, any Galois field that fits neatly in one or more bytes.  Clients must support every possible Galois field.
+Parchive 3.0 supports any Galois field that is a power of 2^8.  That is, any Galois field that fits neatly in one or more bytes.  Clients must support every possible Galois field.
 
 Clients are expected to optimize performance for specific Galois fields.  Some likely targets for optimization are:
 
@@ -764,7 +777,7 @@ An "incremental backup" is created by writing the InputSetID of the "parent" int
 
 The child will have a new Root packet, which determines the input set for the incremental backup.  The child can reuse File, Directory, and file-system specific packets from the parent to encode that input set.  The child will have to contain new File packets for all the files that have changed and new Directory packets when the contents of the directory or any of its subdirectories have changed.  So, if a single file has changed, there will be one new File packet and a new Directory packet for every directory above it.  And, of course, the new Root packet.
 
-If any file data has changed or been added, the child will have new input blocks.  These are assigned indices greater than any index used by a parent's input block.  The lowest input block index that went unused by the parent is written into the parent's Root packet.
+If any file data has changed or been added, the child will have new input blocks.  These are assigned indices greater than any index used by a parent's input block.  The lowest input block index that went unused by the parent can be found in the parent's Root packet.
 
 If a file's contents have changed, it may be possible to reuse the data in the parent's version of the file.  The rolling hash of the parent's input blocks can be used to find that data's location in the child's version of the file.  A chunk can be created in the child's File packet to record the overlap.  Reusing data from the parent's input blocks is not required, but can save a lot of storage and significantly increase the probability of a recovering data.
 
@@ -841,7 +854,7 @@ The packet has a type value of "NPstMSGS" (ASCII).  The author chose the prefix 
 Table B.3. Example Application Specific Packet
 Length (bytes)	Type	Description
 16	fingerprint hash	The checksum of the File packet
-2	unsigned int	The length of the string containing the name of the newsgroup. 
+2	unsigned int	The length of the string (in bytes) containing the name of the newsgroup. 
 ?	UTF-8 string	The name of the newsgroup. For example, "alt.binaries.multimedia".
 2	unsigned int	The length of the string containing the regular expression.
 ?       UTF-8 string	A regular expression matching the name of articles containing the file. For example, "Unaired Pilot - VCD,NTSC - (??/??)".
@@ -916,5 +929,36 @@ https://flylib.com/books/en/2.48.1/standard_file_attributes.html
 
 ACL access control list
 ? "ADS = Alternative Data Stream"?
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+
+\/ \/ \/ TODO \/ \/ \/
+
+File tree design decision.
+
+The problem is that by storing the tree using hashes of branches, when branches have the same contents, we end up reusing the same File or Directory packets.  E.g., an empty file with the same name is reused everywhere in the tree.   But if those files/directories are different because of permissions or holding a hard/symbolic link, then we cannot distinguish them.
+
+Design options:
+
+1. Force uniqueness by adding a counter, so that Files and Directories are never duplicates.
+  * Requires a little work on the sender-side.
+  * Wastes space (to hold the counter)
+  * "counter" cannot be a hash of the path, because we'd need to deal with changing of directory names.
+  
+2. Use hash of full path to identify files for permissions, links, etc..
+  * two different ways to look Files?
+  * doesn't work when directory names are changed
+
+3. Let File and Directory packets include optional links to packets, so to Permission or Links packets, even if unsupported.
+  * still could have duplicates in filesystem tree, but only if identical
+  * weird.  Need to address unidentified optional packets.
+  * does solve the "how do I know I have the whole tree" issue for Links and Permissions
+  * still have issue of how to store permissions
+  * need to add counter for number of options ... could limit number of links
+  
+The third option seems easiest?
+
 
 /\ /\ /\ TODO /\ /\ /\
