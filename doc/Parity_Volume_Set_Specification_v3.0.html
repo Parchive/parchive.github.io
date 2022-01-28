@@ -1,0 +1,1293 @@
+<h1 id="parity-volume-set-specification-30-2022-01-28-alpha-draft">Parity Volume Set Specification 3.0 [2022-01-28 ALPHA DRAFT]</h1>
+<p><strong>Michael Nahas</strong></p>
+<p>With ideas from <strong>Yutaka-Sawada</strong>, <strong>animetosho</strong>, and <strong>malaire</strong>.</p>
+<p><em>Based on Parity Volume Set Specification 2.0 [2003-05-11] by Michael Nahas with ideas from Peter Clements, Paul Nettle, and Ryan Gallagher</em></p>
+<p><em>Based on Parity Volume Set Specification 1.0 [2001-10-14] by Stefan Wehlus, Tobias Reiper, Kilroy Balore, Willem Monsuwe, Karl Vogel, and Ryan Gallagher</em></p>
+<!---
+This file is in Github-Flavored Markdown.
+(The original Markdown does not support tables)
+On linux, it can be converted to HTML by "pandoc --from=gfm --to=html".
+--->
+
+<!--- Add borders to tables --->
+
+<style>
+table, th, td {
+  border: 1px solid black;
+}
+</style>
+
+<!---
+History
+
+Started January 16th, 2020
+New Design, July 29th, 2021
+Updated based on feedback November 16th, 2021  (dropped streaming, added chunks)
+Updated November 26th, 2021  (complete, except for a few small details)
+Updated December 6th, 2021  (Refining)
+Updated December 30th, 2021  (Nearing draft version)
+Updated January 28th, 2022  (Official "Pre-reference implementation" draft)
+--->
+
+<p><strong>License:</strong> The legal rights associated with this document are covered by the license in Appendix A.</p>
+<h2 id="introduction">Introduction</h2>
+<p>This document describes a file format for storing redundant data. If any of the original data is damaged in storage or transmission, the redundant data can be used to regenerate the original input. Of course, not all damages can be repaired, but many can.</p>
+<h2 id="table-of-contents">Table of Contents</h2>
+<ul>
+<li><a href="introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a>
+<ul>
+<li><a href="#use-case">Use Case</a></li>
+<li><a href="#design-goals">Design Goals</a></li>
+<li><a href="#the-math-of-redundancy">The Math of Redundancy</a></li>
+<li><a href="#specifics-of-computation">Specifics of Computation</a></li>
+</ul></li>
+<li><a href="#file-layout">File Layout</a>
+<ul>
+<li><a href="#conventions">Conventions</a></li>
+<li><a href="#packets">Packets</a>
+<ul>
+<li><a href="#packet-header">Packet Header</a></li>
+<li><a href="#creator-packet">Creator packet</a></li>
+<li><a href="#comment-packet">Comment packet</a></li>
+<li><a href="#start-packet">Start packet</a></li>
+<li><a href="#data-packet">Data Packet</a></li>
+<li><a href="#external-data-packet">External Data Packet</a></li>
+<li><a href="#matrix-packets">Matrix Packets</a>
+<ul>
+<li><a href="#cauchy-matrix-packet">Cauchy Matrix Packet</a></li>
+<li><a href="#sparse-random-matrix-packet">Sparse Random Matrix Packet</a></li>
+<li><a href="#explicit-matrix-packet">Explicit Matrix Packet</a></li>
+</ul></li>
+<li><a href="#recovery-data-packet">Recovery Data Packet</a></li>
+<li><a href="recovery-external-data-packet">Recovery External Data Packet</a></li>
+<li><a href="#file-packet">File Packet</a></li>
+<li><a href="#directory-packet">Directory Packet</a></li>
+<li><a href="#root-packet">Root Packet</a></li>
+<li><a href="#file-system-specific-packets">File System Specific Packets</a>
+<ul>
+<li><a href="#link-packet">Link Packet</a></li>
+<li><a href="#unix-permissions-packet">UNIX Permissions Packet</a></li>
+<li><a href="#fat-permissions-packet">FAT Permissions Packet</a></li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><a href="#clarifications-and-commentary">Clarifications and Commentary</a>
+<ul>
+<li><a href="#security">Security</a></li>
+<li><a href="#order-of-packets">Order of Packets</a></li>
+<li><a href="#alignment">Alignment</a></li>
+<li><a href="#galois-field-encoding">Galois Field Encoding</a></li>
+<li><a href="#rolling-hash">Rolling Hash</a></li>
+<li><a href="#chunking-and-deduplication">Chunking and Deduplication</a></li>
+<li><a href="#compression">Compression</a></li>
+<li><a href="#sparse-matrices">Sparse Matrices</a></li>
+<li><a href="#incremental-backup">Incremental Backup</a></li>
+<li><a href="#par-inside-another-file">Par Inside Another File</a></li>
+<li><a href="#conventions-1">Conventions</a></li>
+</ul></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#appendix-a-license">Appendix A: License</a></li>
+<li><a href="#appendix-b-example-application-specific-packet-type">Appendix B: Example Application-Specific Packet Type</a></li>
+<li><a href="#appendix-c-example-of-a-deduplication-algorithm">Appendix C: Example of a Deduplication Algorithm.</a></li>
+</ul>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>Before getting into the exact bytes of the file format, it is useful to cover how it will be used, the designer's goals, and the necessary math.</p>
+<h3 id="use-case">Use Case</h3>
+<p>The user selects a set of files from which the redundant data is to be made. These are known as "input files" and, together with their directory tree, are known as the "input set". The user provides the input set to a program which generates new files that match the specification in this document. The program is known as a "Parchive 3.0 client" or "client" for short. The generated files are known as "Parchive 3.0 files" or "Par3 files" and usually have the extension ".par3".</p>
+<p>If the files and directories in the input set ever get damaged (by being transmitted unreliably or stored on a faulty disk), a client can read the damaged input files, read the (possibly damaged) Par3 files, and regenerate the original input files and directory tree. Again, not all damages can be repaired, but many can.</p>
+<h3 id="design-goals">Design Goals</h3>
+<p>Parchive 3.0's goal is to provide a complete solution for the bottom two layers of archiving: redundancy and splitting. ("Splitting" is the breaking of a single archive into multiple pieces that can be stored on separate disks or transmitted in separate network packets.) Other layers of archiving --- like compression, encryption, and storing metadata --- may be better served by other programs (zip/gzip/7zip, pgp/gpg, tar, etc.) Parchive 3.0 provides minimal support for some of these layers, for ease and backwards compatibility.</p>
+<p>Parchive 3.0 does not provide any support for encryption, because it is tricky to do right.</p>
+<p>Major differences from Parchive 2.0 are:</p>
+<ul>
+<li>support empty directories</li>
+<li>support more than 2^16 files</li>
+<li>support UTF-8 filenames (Par2 added this after version 2.0.)</li>
+<li>support file permissions</li>
+<li>support hard links and symbolic links</li>
+<li>support "incremental backups"</li>
+<li>support files that work both as a Par3 file and another type. For example, putting recovery data inside a ZIP, ISO 9600 disk image, or other file.</li>
+<li>support for storing data inside a Par3 file (This was optional in Par2.)</li>
+<li>support any Galois field that is a power of 2^8</li>
+<li>support any linear code (Reed-Solomon, LDPC, random sparse matrix, etc.)</li>
+<li>support more than 2^16 blocks</li>
+<li>support "tail packing", where a block holds data from multiple files</li>
+<li>support deduplication, where the same block appears in multiple files</li>
+<li>replace MD5 hash (It is both slow and less secure.)</li>
+<li>dropped requirement for 4-byte alignment of data</li>
+</ul>
+<p>Part of "support any linear code" is to fix the major bug in Parchive 2.0. Parchive 2.0 did not do Reed-Solomon encoding as it promised. There was a major mistake in the paper that Parchive 2.0 relied on. The problem manifested as a bug in Parchive 1.0 and, while Parchive 2.0 reduced its occurrence, it did not fix the problem. Parchive 2.0 did not use an always invertible matrix; it essentially used a random matrix, which (luckily) is invertible with high probability. Parchive 3.0 fixes that bug.</p>
+<p>The other part of "support any linear code" is supporting codes beside Reed-Solomon. Reed-Solomon has excellent data protection, but is slow to compute. LDPC and sparse random matrices will speed things up dramatically, with a slight increase in errors that cannot be recovered from.</p>
+<p>Note: The design of Parchive 3.0 focuses on redundancy for a set of files on a disk. This matches the Parchive 1.0 use case of sending files on Usenet, as well as the growing usage of Parchive to protect against faulty disks. There were other design ideas, such as redundancy for a stream or to build redundancy into a (user-level) file system. Both of these are interesting possibilities, if any open source designers need an idea. Another good idea would be to build a user-level append-only file system using files that match this specification. (Append-only file systems are important for record keeping in government and banking.)</p>
+<h3 id="the-math-of-redundancy">The Math of Redundancy</h3>
+<p>The major feature of Parchive is to support redundant data. Parchive uses Linear Algebra to generate the redundant data and, after damage, to recover the original input data. To understand how it works, you need to be familiar with vectors, matrices, etc.</p>
+<p>The calculation of redundant data starts with the input data being packaged into a set of vectors. Those vectors are multiplied by the "code matrix" to generate vectors of redundant data. Thus, the redundant data vector "r" is equal to the code matrix "C" times the input data vector "i":</p>
+<p><code>r = Ci</code></p>
+<p>Assuming that some data is damaged in transmission or storage, the first step in recovery is identifying the good input data and good redundant data. Good data is data that arrived intact; bad data was lost or damaged. We can then permute the elements of each vector to partition them into "good" ones and "bad" ones. The permuted r and i are now:</p>
+<pre><code>r = | r_good |
+    | r_bad  |
+
+i = | i_good |
+    | i_bad  |
+</code></pre>
+<p>To keep the equation, we also need to permute the rows and columns of the code matrix to match each vector. The permuted C and the equation are now:</p>
+<pre><code>C = | C_good,good C_good,bad |
+    | C_bad,good  C_bad,bad  |
+
+| r_good | = r = Ci = | C_good,good C_good,bad || i_good |
+| r_bad  |            | C_bad,good  C_bad,bad  || i_bad  |
+</code></pre>
+<p>Our goal, of course, is to recover the bad input data. To do that, we pull out the equation for the good redundant data...</p>
+<p><code>r_good = C_good,good*i_good + C_good,bad*i_bad</code></p>
+<p>... and solve for the bad input data:</p>
+<p><code>i_bad = C_good,bad^-1*(r_good - C_good,good*i_good)</code></p>
+<p>Here, "^-1" indicates the left inverse of the matrix. Since the redundant data was made by multiplying the input data by the code matrix, the inverse of a submatrix of the code matrix allows us to recreate the missing input data from the redundant data. Not every matrix has a left inverse. When the left inverse does not exist, we cannot recover the input data. The left inverse never exists when a matrix has more columns than rows, which means we cannot recover if there are more bad input blocks than good redundant blocks.</p>
+<p>Unlike in your Linear Algebra class, the elements of the vectors and matrices are not real numbers or complex numbers, but elements of a "Galois field". Like the computer's integers (a.k.a., the integers modulo 2^N), Galois fields come in various sizes like 8-bits, 16-bits, etc. and support operations called addition, subtraction, multiplication, and division. Unlike the computer's integers, "division" exactly inverts "multiplication" for every value. (Computer integers can overflow during multiplication, preventing division from inverting the multiplication.) That perfect inversion allows the Linear Algebra to work.</p>
+<p>Parchive 3.0 improves on Parchive 2.0 by supporting multiple Galois fields and by supporting any code matrix. This means Parchive 3.0 supports a large set of error correcting codes known as "linear codes". These include Reed-Solomon and many Low Density Parity Check (LDPC) codes. This flexibility allows Parchive 3.0 clients to choose between speed and the number of errors that can be recovered. It also allows Parchive 3.0 to support any new linear code that might be developed.</p>
+<h3 id="specifics-of-computation">Specifics of Computation</h3>
+<p>This section goes into the details of how redundant data is computed and how recovery proceeds. That is, how the mathematical vectors from the previous section are related to actual bytes in a file.</p>
+<p>Generating the recovery data starts with choosing a Galois field. The Galois field is usually chosen by the client based on whatever is fastest for the computer's hardware. Sometimes larger Galois fields are chosen to enable more redundancy. For the example in this section, we'll assume the Galois field fits in 2-bytes (16-bits).</p>
+<p>Next, the user chooses a block size. The block size is the smallest unit for recovering data. It is usually chosen to match the transmission/storage technology or to limit overhead. The block size must be a multiple of the size of the Galois field. For our example, it will be 2048 bytes, but in practice it can be much larger, even gigabytes.</p>
+<p>Next, the client packs all of the input data into equal-sized blocks. There are many steps to this. What follows is a list of the operations, but the specifics of each will be described in detail later. First, the client breaks the files into variable-length chunks. (Files can share chunks, which is how Par3 encodes multiple files that contain the same data.) Second, the chunks are chopped into equal-sized blocks. If the end of a chunk doesn't completely fill a block, the end can be packed with the ends of other chunks into a single block. Lastly, any incompletely-filled block is padded with zero bytes. By the end of these operations, the input data is converted to equal-sized blocks. For our example, we'll assume the input data takes up 100 blocks, each 2048 bytes long. Each of those 100 blocks can be seen as holding 1024 Galois field values (each 2-byte in size).</p>
+<p>The next step reorganizes the blocks into vectors. The 100 blocks containing 1024 Galois field values become 1024 vectors containing 100 Galois field values. This is done the obvious way: swapping rows for columns and columns for rows. The values in the i-th block become the i-th element of each vector; the j-th value in each block are used to make the j-th vector.</p>
+<p>Next, the user chooses the numbers of recovery blocks that they want. The number of recovery blocks determines the maximum number of damaged/missing input blocks that we can recover. Often the number of recovery blocks is 5% or 10% of the number of input blocks.</p>
+<p>Next, the user chooses a code matrix. The code matrix has a column for each input block and a row for each recovery block. The elements of the matrix can be anything --- Parchive 3.0 supports any linear code. Codes vary in speed and the probability of recovering from an error. Some common choices for the code matrix will be a Cauchy matrix, for recovering any possible damage, or a sparse random matrix, for speed.</p>
+<p>Next, for all the input vectors, the client makes a recovery vector by multiplying the input vector with the code matrix. There is only one code matrix; the code matrix is the same for every pair of vectors. Since there is one recovery vector for each input vector, there are 1024 recovery vectors. The length of each recovery vector is equal to how many recovery blocks we want.</p>
+<p>The next step reorganizes the recovery vectors into recovery blocks. It is basically the inverse of the step that reorganized the input blocks into input vectors. If we want 5 recovery blocks, the 1024 recovery vectors of length 5 become 5 recovery blocks with 1024 Galois field values. The i-th element in each vector goes into the i-th recovery block; the j-th vector is used to make the j-th value in each recovery block. Notice that the recovery blocks are the same size as the input blocks. Each has 1024 Galois field values and each value takes 2-bytes, so the recovery blocks are each 2048 bytes.</p>
+<p>The recovery blocks are written into Par3 file(s) using the "Recovery Data packet" format (specified below). The input blocks can be stored in their original files or stored in the Par3 file(s) using the "Data packet" format (specified below). The encoding client also writes filenames, the directory structure and (optionally) file permissions into the Par3 file using the other packet formats.</p>
+<p>Once the encoding client has written the Par3 file(s), the user can then store or transmit the Par3 file(s) and, if they choose, the original input files.</p>
+<p>After storage or transmission, a (possibly different) user can use a (possibly different) Par3 client to regenerate the original files or, if the original input files were stored/sent, check those files. The following steps will describe what happens when the original input files were stored/sent. The complete regeneration of the original input files from the Par3 files is similar.</p>
+<p>The decoding client's first step is to check the Par3 files. The Par3 files contain checksums for the data contained in them. Any damaged part of a Par3 file is discarded. Par3 files usually contain duplicated data so that discarding a part of the file does not prevent recovery. If the Par3 file is incomplete, the decoding client performs the steps that it has data to do, but may be unable to verify or recover the original input set.</p>
+<p>Next, the decoding client checks if the original input files were store/sent correctly. The Par3 files contains checksums for the contents of every file and a checksum that represents the files' names, entire directory tree, and (optional) file permissions. The decoding client verifies those checksums and, if the original input files are not present or are damaged, the decoding Par3 client attempts to recover the original files.</p>
+<p>To do that, the decoding client searches for all the input blocks. The Par3 file(s) contain a checksum for every input block and every recovery block. The decoding client searches the Par3 file(s) and input files for all the input blocks and uses the checksums to determine which are damaged. If any input block is missing or damaged, recovery of the input blocks is attempted.</p>
+<p>The first step to recovering the input blocks has already been done: determine which input blocks are good (present and unchanged) or bad (missing or damaged). This information is converted into which elements of the input vectors need to be recovered. (This was "i_bad" in a previous section.)</p>
+<p>Next, the decoding client uses the recovery block checksums in the Par3 file to identify good recovery blocks. It then converts those blocks into which elements of the recovery vectors can be used to recover the missing input data. (This was "r_good" in the previous section.)</p>
+<p>Then, the client performs the math (described above) which uses the good elements of each recovery vector to recover the bad elements of its associated input vector. The math requires inverting a submatrix of the code matrix. There are many ways that the client can invert a matrix (for example: Gaussian elimination, Fast Fourier Transform (FFT), and the incremental approach used by LDPC). Clients may consider multiple strategies. If the matrix's left inverse does not exist, recovery fails. If the left inverse exists, the decoding client uses it to calculate the missing elements of the input vectors.</p>
+<p>After recovering the missing elements of each input vector, the data is reorganized to regenerate the missing input blocks. Those blocks and any pre-existing input blocks are written to the appropriate place in the appropriate files.</p>
+<p>Once the file contents have been recovered, the decoding client uses the other data in the Par3 file to rename, move, or (optionally) set the permissions on the files and directories to match the original input set.</p>
+<p>Before ending, the decoding client verifies the checksums of the input files, directories and (optional) permissions. This final verification ensures that the decoding client did not make a mistake during the complicated process of recovering the input blocks and complete input set.</p>
+<p>Having described the math behind recovery and how the encoding and decoding clients manipulate the bytes to make the math work, the rest of the specification goes into the details of the file format.</p>
+<h2 id="file-layout">File Layout</h2>
+<h3 id="conventions">Conventions</h3>
+<p>There are a number of conventions used in this specification.</p>
+<p>The abbreviation "kB" refers to 2^10 = 1,024 bytes. (Disk sales people have sometimes used "kilobyte" or "kB" to mean 10^3 = 1,000 bytes. The result was the unambiguous but little used "kibibyte" or "KiB".)</p>
+<p>All integers in this version of the spec are integers of 1, 2, 4, 8, or 16 bytes in length.</p>
+<p>All integers are little endian. (This is the default on x86 and x86-64 CPUs, but not other architectures.) Signed integers are in 2's complement notation. (This is the default on every major architecture.)</p>
+<p>Strings are not NUL-terminated. This is to prevent hackers from using stack-overflow attacks. If an N-byte field contains an array, a null-terminated string can be created by copying the N-byte field into a character array of length N+1 and then the setting the N+1 character to '\0'.</p>
+<p>The lengths of arrays and strings are often implicit. For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes.</p>
+<p>All strings are UTF-8. <em>WARNING: Writers of OSX/MacOS clients must take special care with UTF-8 filenames! Unicode has multiple ways to encode the same string. An e with an accent mark can be encoded as a single character (U+00e9) or two characters, one for the e (U+0065) and one for the accent mark (U+0301). Par3 does not require a particular encoding. Forcing a particular encoding is called "normalization" in the Unicode vocabulary. Most file systems do not normalize filenames and just treat the UTF-8 as a sequence of bytes. Par3 follows their practice. However, HFS+ was Apple's default file system from 1998 to 2017 and it normalizes every filename. Thus, if a Parchive 3.0 client writes a file with a UTF-8 filename, the HFS+ file system may change the filename. Clients for OSX/MacOS should be aware of this possibility. Apple's current default file system, APFS, does not do normalization.</em></p>
+<p>The lengths of input files and locations in input files can be 8-byte integers or larger. There is no limit on the length of a Par3 file. (Hard drive size doubles every 1.5 years and is expected to exceed 8-byte integers before 2040.) Clients MAY choose not to support files that are larger than 2^64. Clients that do not support large files must inform the user if they encounter a Par3 file containing too large a file.</p>
+<p>The block size and matrix indices are 8-bytes integers. In order to protect files with more than 2^64 bytes, users must choose larger block sizes.</p>
+<p>Par3 uses two hash functions. The "rolling hash" is CRC-64-ISO. The rolling hash is used to identify input blocks that are not in their expected location. This hash is only 64-bits long and may not uniquely identify a block.</p>
+<p>The "fingerprint hash" is the lower 16-bytes of a Blake3 hash. It is used to uniquely identify blocks. If two blocks have the same fingerprint hash, they are assumed to have identical contents.</p>
+<p>TODO: Make sure "lower 16-bytes bytes" above is specific.</p>
+<p>Padding between packets, if done at all, is specified to be zero bytes.</p>
+<p>The order of items in all arrays is specified.</p>
+<p>When discussing vectors and matrices, this document uses zero-indexing. That is, the elements in a vector are at locations 0 through N-1. (One-indexing, the usual convention in mathematics, has them at locations 1 through N.)</p>
+<h3 id="packets">Packets</h3>
+<p>A Par3 file is made of packets: self-contained parts with their own checksum. This design prevents damage to one part of the file from making the whole file unusable.</p>
+<p>Packets have a type and each type of packet serves a different purpose. One type describes the code matrix. Another contains input blocks. Yet another contains a recovery block. There are many other types.</p>
+<p>A Par3 file is only required to contain 1 specific packet: the packet that identifies the client that created the file. This way, if clients are creating files that don't match the specification in some way, they can be tracked down.</p>
+<p>All packets contain an InputSetID. It uniquely identifies the set of input files and directories. The packets to recover a particular set of input files can be stored in multiple Par3 files. In that case, the packets can be identified because they will all share the same InputSetID. The packets to recover different sets of input files can be stored inside the same Par3 file. In that case, the packets can be told apart by their different InputSetIDs. To handle incremental backups, an InputSetID can have a "parent" InputSetID. With a few exceptions, the packets of the parent (and any of its ancestors), are considered packets of the child InputSetID.</p>
+<p>Packets can be duplicated. In fact, duplicating packets is recommended for vital packets, such as the one containing the file checksums. This is because Parchive's recovery mechanism only protects the contents of files, not the files' metadata nor the code matrix. Duplicating packets with the metadata and code matrix is one way to protect it against loss. (Another way to protect it is "Par inside Par", described below.)</p>
+<p>Packets can appear in any order. Because packets can be lost or mishandled, it is impossible to guarantee the order that packets arrive at the decoding client. Nonetheless, there is a recommended order for packets, which, if most packets arrive correctly, allows the decoding clients to recover the files in a single pass.</p>
+<h4 id="packet-header">Packet Header</h4>
+<p>A Par3 file consists of a sequence of "packets". A packet has a fixed-sized header and a variable length body. The fields of the header are:</p>
+<p><em>Table: Packet Header</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">byte[8]</td>
+<td style="text-align: left;">Magic sequence. Used to quickly identify location of packets. Value = {'P', 'A', 'R', '3', '\0', 'P', 'K', 'T'} (ASCII)</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">16-bytes of Blake3 hash of packet. Used as a checksum for the packet. Calculation starts after this field and ends at last byte of body. Does not include the magic sequence or this field.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Length of the entire packet. (Note: Includes length of header.)</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">InputSetID</td>
+<td style="text-align: left;">All packets for the same input set have the same InputSetID. (See below for how it is calculated.)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">byte[8]</td>
+<td style="text-align: left;">Packet type. Can be any value. All beginning "PAR " (ASCII) are reserved for specification-defined packets. Application-specific packets must have an application-specific 4-byte prefix.</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">?</td>
+<td style="text-align: left;">Body of Packet.</td>
+</tr>
+</tbody>
+</table>
+<p>The magic sequence is a constant value that is the same in every packet. It is used when searching for packets in a file. (The magic sequence begins with "PAR3\0" so that if someone looks at the contents of a Par3 file in a text editor, it starts with "PAR3".)</p>
+<p>The checksum is used to determine if any part of the packet has been changed during storage/transmission. The checksum does not cover the magic sequence nor the checksum field itself; it covers everything after (including all of the body). If the checksum of the data read/received does not match this field's value, the packet is ignored.</p>
+<p>The length of the entire packet is measured in bytes. It includes the length of header. (Note: In Par 3, packets are not required to be 4-byte aligned and packet lengths are not required to be a multiple of 4-bytes. If a client wished to align packets, zeroed bytes can be inserted between packets.)</p>
+<p>The InputSetID is used to identify packets that should be processed together, even if those packets were written to separate Par3 files. The InputSetID is a globally unique random number. See the Start packet description below for an explanation of how it is generated.</p>
+<p>The packet-type field is used to distinguish the different types of packets. Clients MUST be able to process the "core" packet types listed below. Client MAY process the optional packets or create their own application-specific packets. The packet type is not guaranteed to be a string or even ASCII valued. (Note: The types of required packets are ASCII strings so that a developer can run "strings file.par3 | grep PAR" and see what packets are in a file.) If the client does not recognize the packet type, the packet is ignored.</p>
+<p>The body contains data that is particular to the packet type. There are various types of packets. The "core" set of packets --- the set of packets that all clients must recognize and process --- are listed next. For each, the value for the "type" field will be listed along with the contents of the body of the packet.</p>
+<h4 id="creator-packet">Creator packet</h4>
+<p>This packet is used to identify the client that created the Par3 file. It is required to be in every Par3 file.</p>
+<p>This packet is used for debugging. If a decoding client is unable to recover the input set due to a badly created file, the contents of the creator packet MUST be shown to the user. (An automated system MUST write the information to a log file.) The goal of this is that any client incompatibilities can be found and resolved quickly.</p>
+<p>The Creator packet has a type value of "PAR CRE\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Creator Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">UTF-8 text identifying the client, options, and contact information. Reminder: This is not a null terminated string.</td>
+</tr>
+</tbody>
+</table>
+<p>The text in the Creator packet MUST identify the client that created the file. It MUST include the version number of the client.</p>
+<p>It is RECOMMENDED that the text also include the parameters used to generate the Par3 file. For example, a command-line tool could include all the command-line options. A GUI client might include a snippet of the program's log file.</p>
+<p>It is RECOMMENDED the text include a way to contact the author of the tool. For example, an email address or the URL of a web page for submitting new issues.</p>
+<h4 id="comment-packet">Comment packet</h4>
+<p>The Comment packet contains a comment in UTF-8. This string SHOULD be shown to the user. (An automated system SHOULD write the information to a log file.) If multiple copies of the same Comment packet are found, only one should be shown.</p>
+<p>The Comment packet has a type value of "PAR COM\0" (ASCII). The packet's body contains the following</p>
+<p><em>Table: Comment Packet Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">The comment. Note: This is not a null terminated string!</td>
+</tr>
+</tbody>
+</table>
+<h4 id="start-packet">Start packet</h4>
+<p>This packet specifies the Galois field and block size. It can also hold a "parent's" InputSetID, if this Par3 file wants to reuse data from an existing Par3 file.</p>
+<p>The Start packet has a type value of "PAR STA\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Start Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">InputSetID</td>
+<td style="text-align: left;">The "parent" InputSetID, or zeros if none.</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum of the parent's Root packet, or unique if none.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Block size in bytes</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">The size of the Galois field in bytes.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">?-byte GF</td>
+<td style="text-align: left;">The generator of the Galois field without its leading 1.</td>
+</tr>
+</tbody>
+</table>
+<p>The first field is used for an "incremental backup". If the user wants this Par3 file to reuse the data in Par3 files for another input set, then this field is set to the InputSetID in the "parent's" Par3 packets. Otherwise, the field is all zeros. If the field is set, all the packets with the parent's InputSetID (and any of its ancestors) are considered packets with this packet's InputSetID with the following conditions. The parent and ancestors' Root packets are not used to determine the input set. And, the parent and ancestors' Start packets must all have the same block-size and Galois field as this packet.</p>
+<p>The second field is the checksum of the parent's Root packet, or, if there is no parent, a unique number. The checksum of the parent's Root packet guarantees that the parent's input set was completely specified before this input set's was started. If there is no parent, the field is set to a globally unique number. (See below for how to generate a globally unique number.) The globally unique number ensures the InputSetID (explained below) is unique.</p>
+<p>The block size determines the length of input blocks and recovery blocks. The block size must be a multiple of the Galois field size. If the parent's InputSetID is present, the block size must be the same as the parent's.</p>
+<p>The Galois field size says how many bytes are used to hold a Galois field element. If the parent's InputSetID is present, the Galois field (both size and generator) must be the same as in the parent.</p>
+<p>The Galois field's generator is written in little-endian format without its leading 1. Thus, if the Galois field had a size of 2-bytes and a generator of 0x1100B, the entry's first two bytes would hold the value 0x100B in little-endian format. Notice that the packet does not store the leading 1 that is present in the mathematical notation of the generator. More information is available in the section on Galois fields below.</p>
+<p>There is only one Start packet for an InputSetID. There can be multiple identical copies of this packet in the file. (This is true for all packets.)</p>
+<p>Start packets are used to generate the InputSetID, which is included in the header of every packet. The InputSetID is the first 8 bytes of the Blake3 hash of the body of the Start packet. To be clear, the hash for the InputSetID does not include the header of the packet. (Including the header is actually impossible, since the hash would have to contain a hash of itself.)</p>
+<p>TODO: Make sure "first 8 bytes" above is specific.</p>
+<p>Note: There are many ways to generate a globally unique random number. One way is to use the fingerprint hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp. (Be careful that the machine identifier is actually unique! Many computers share the same IP Address in one of the private address ranges.) Another method for generating a globally unique number is, if the input set's data is known ahead of time, is to use a fingerprint hash of the parent's InputSetID, block size, Galois field parameters, and all the files' contents. A third method is to use an internet service, like random.org. Be careful with services, since if it goes down or offline (like the imaginative "LavaRand"), the client's users will be unable to generate new Par3 files.</p>
+<h4 id="data-packet">Data Packet</h4>
+<p>This packet contains one block of data from the input files.</p>
+<p>The Data packet has a type value of "PAR DAT\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Data Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">The index of the input block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">byte[]</td>
+<td style="text-align: left;">The data itself.</td>
+</tr>
+</tbody>
+</table>
+<p>The input block's index is used with the File packets (described below) to say where this data occurs in files. Input block indices are used consecutively, so an input set will generally use all block indices from 0 up to a particular value.</p>
+<p>Data packets contain one entire block's worth of data. The data's length is implicit. (The packet's entire length is written in the packet header.) If the data's length is less than the block size, the rest of the block is filled with zero bytes. The data cannot be longer than the block size.</p>
+<h4 id="external-data-packet">External Data Packet</h4>
+<p>This packet contains checksums for input blocks that are not stored inside a Data packet. The most common case is when input files are kept around and have the data inside them. Should those files be partially damaged, the good data stored in them can be used for recovery. The checksums in this packet are used to find and verify that good data.</p>
+<p>The External Data packet has a type value of "PAR EXT\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: External Data Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of the first input block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">24*?</td>
+<td style="text-align: left;">{rolling hash, 16-byte fingerprint hash}</td>
+<td style="text-align: left;">A rolling checksum and fingerprint for each input block</td>
+</tr>
+</tbody>
+</table>
+<p>The index for the first input block for which there is a checksum.</p>
+<p>The tuples contain a rolling hash (CRC-64-ISO) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of input blocks. Thus, the first pair of checksums is for a block with the index written in the packet. The second pair of checksums is for the block index plus 1. Etc.</p>
+<p>Note: The rolling hash is used to locate a block when data might have shifted location. The fingerprint hash is used to confirm that the block is the correct block (because the rolling hash is less trustworthy). There is more about the rolling hash in the section "Rolling Hash" below.</p>
+<h4 id="matrix-packets">Matrix Packets</h4>
+<p>A matrix packet determines a portion of the code matrix and specifies how one or more recovery blocks were computed. There are 3 different types of matrix packets. More than one type can be used at the same time. For example, a sparse matrix packet could be used to generate most recovery data and a Cauchy matrix packet to generate a few blocks of recovery data. (This dual approach balances speed and recovery of errors.)</p>
+<p>Parchive 3.0 has 3 different types of matrix packets: Cauchy, Sparse Random, and Explicit.</p>
+<h5 id="cauchy-matrix-packet">Cauchy Matrix Packet</h5>
+<p>This packet describes a Cauchy matrix. It is used for all or part of the code matrix. A single Cauchy Matrix packet determines multiple rows of the code matrix and can be used with multiple Recovery Data packets.</p>
+<p>The Cauchy matrix creates the best possible recovery data. With the Cauchy matrix, any submatrix that can have a left inverse does have a left inverse. (That is, any submatrix which doesn't have more columns than rows, has a left inverse.) Using just one Cauchy matrix creates a Reed-Solomon code.</p>
+<p>The Cauchy matrix packet has a type value of "PAR CAU\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Cauchy Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of first input block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of last input block plus 1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">hint for number of recovery blocks</td>
+</tr>
+</tbody>
+</table>
+<p>The recovery data is computed for a range of input blocks. The range is denoted using a "half-open interval". So, to compute recovery blocks for input blocks 3, 4, and 5, the range is denoted by 3 and 6. If the encoding client wants to compute recovery data for every input block, they use the values 0 and 0. (Because the maximum unsigned integer plus 1 rolls over to 0.) The matrix's elements for all input blocks outside the range is 0.</p>
+<p>The hint to the number of recovery blocks is used in single-pass situations to allocate buffers. If the number of rows is unknown, the hint is set to zero.</p>
+<p>For the non-zero elements of the matrix, the element for input block I and recovery block R depends on I and R. (Note: This specification uses zero-index vectors, so I and R start at 0.) Specifically, it is the multiplicative inverse of x_I-y_R, where x_I is the Galois field element with the same bit pattern as binary integer I+1 and y_R is the Galois field element associated with the binary integer MAX-R, where MAX is the maximum binary unsigned integer value with the same size as the Galois field. (Note: In binary, MAX contains all ones.) To be clear, the multiplicative inverse and subtraction x_I-y_R are done using Galois field arithmetic. The I+1 addition and MAX-R subtraction is done using native integer arithmetic.</p>
+<p>Mathematically, that is: inv( (I+1) ^ (<del>0-R) ) = inv( (-2-I) ^ R ) where the GF element fits in an twos-compliment integer, "inv()" is the Galois field's multiplicative inverse, "</del>" denotes bitwise NOT and "^" denotes bitwise XOR.</p>
+<h5 id="sparse-random-matrix-packet">Sparse Random Matrix Packet</h5>
+<p>This packet describes a sparse random matrix. With a sparse matrix, it is faster to calculate recovery blocks, but the user has to accept a slightly higher chance of not recovering from extreme cases.</p>
+<p>If it feels wrong to increase the probability of failure, recall that for any matrix, it must fail if insufficient input and recovery blocks arrive. Using a sparse matrix, rather than a Cauchy, can run many times faster. Users that can store/send a handful of additional recovery blocks can get much faster performance with a minuscule increase in failure to recover. See "Sparse Matrices" below for details about how to use this packet and the probability of failure.</p>
+<p>The Sparse Random Matrix packet has a type value of "PAR SPA\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Sparse Random Matrix Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of first input block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of last input block plus 1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">maximum number of recovery blocks</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">number of non-zero elements per input block</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">random number generator seed</td>
+</tr>
+</tbody>
+</table>
+<p>The recovery data is computed for a range of input blocks. (See Cauchy Matrix packet.) The matrix's elements for all input blocks outside the range is 0.</p>
+<p>Otherwise, each of the input block's non-zero elements are generated and then shuffled into position. The following paragraphs describe the details.</p>
+<ol>
+<li><p>Allocate a matrix with R rows and C columns, where R is the number of input blocks and C is the number of recovery blocks</p></li>
+<li><p>Go row-by-row from low index to high, generating each row as follows:</p></li>
+</ol>
+<ul>
+<li><p>Fill the row with C-X zeroes and X random Galois field values. The zeroes go in the low indexes; the random values in the higher ones. The method for generating a random Galois field values is below. The order of requests to the random number generator is important: the values should be assigned from the lowest column index to the greatest.</p></li>
+<li><p>Shuffle the row. Once shuffled, the random non-zero values will then be evenly distributed. The shuffle algorithm is the "inside-out" version of the "Fisher-Yates shuffle". Skip the shuffle for the first C-X elements, because they are all zeroes and shuffling them does nothing. The first non-zero value is at index C-X and is swapped with a random location in the range 0 to C-X. The next non-zero value is at index C-X+1 and is swapped with a random location in the range 0 to C-X+1. Continue until all the non-zero elements are shuffled. The random location values are generated by treating a random 64-bit value as an unsigned integer and using modulus (the % operator in C, C++, Java, python, etc.).</p></li>
+</ul>
+<p>The random number generator is a "Permuted congruential generator" that generates 64-bit values. Specifically, it is "PCG-XSL-RR". The generator has a 128-bit state. The seed goes into the lower bits of the state. The upper bits of the state are zeroed.</p>
+<p>Generating a B-byte random non-zero Galois field value is done as follows: If B is greater than 8-bytes, the 64-bit values from the random number generator are put into the Galois field value from lowest byte-index to highest. For the last (B modulo 8) bytes, the lowest bits of the random 64-bit value are used. This is the same as if the random value was taken modulo 2^(8*B). Lastly, if the random value generated by this process was zero, the value is ignored and a completely new value is generated in its place.</p>
+<p>The final result is a matrix where every row has X randomly-located non-zero random values. This will mean data from from each input block will be incorporated into X different recovery blocks.</p>
+<p>Note: When using random values and the modulus operator ('%' in C/C++/Java/python), be careful that the random value is treated as an unsigned value, and not a signed one. Some modulo operators, like Java's, can return a negative value on signed input. (Java's operator is actually calculating "remainder" and not "modulus".)</p>
+<h5 id="explicit-matrix-packet">Explicit Matrix Packet</h5>
+<p>This packet describes a matrix that computes a single recovery block. The values of the elements are explicitly contained in the packet, and not computed like the other matrix packets. This packet is intended to be used for LDPC, such as Tornado Codes.</p>
+<p>The Explicit Matrix rows packet has a type value of "PAR EXP\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Explicit Matrix Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">?*(8+?)</td>
+<td style="text-align: left;">{8-byte unsigned int, GF value}</td>
+<td style="text-align: left;">input block index, Galois field value</td>
+</tr>
+</tbody>
+</table>
+<p>The matrix contains values for a single row of the code matrix. There will be only one recovery block associated with this matrix. For each input block that is used to calculate the recovery block, there is a pair of the index of the input block and its Galois field factor. The pairs are in sorted order, with input block indices increasing from lowest to highest. Any block indices not present have a factor of zero.</p>
+<h4 id="recovery-data-packet">Recovery Data Packet</h4>
+<p>This packet contains a recovery block.</p>
+<p>The Recovery Data packet has a type value of "PAR REC\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Recovery Data Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum from the Root packet</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum from the Matrix packet</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">The index of the recovery block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">data</td>
+<td style="text-align: left;">The recovery block data</td>
+</tr>
+</tbody>
+</table>
+<p>The Root packet checksum is used to determine the input blocks that were used to calculate the recovery data in this packet. The recovery data is only calculated using input blocks up to the maximum index recorded in the Root packet.</p>
+<p>The Matrix packet checksum and recovery block index together indicate the row of the code matrix used to calculate the recovery data in this packet. There can be multiple Matrix packets and each has their own range of recovery block indices. For example, a Par3 file can contain a Sparse Matrix packet with recovery block indices 0 through 100 while also containing a Cauchy Matrix packet with its recovery block indices going from 0 to 3. Explicit Matrix packets can have only one recovery block and its index is specified to be 0.</p>
+<p>The data field holds the recovery block's data. The data's length is implicit. (The packet's entire length is written in the packet header.) If the data's length is less than the block size, the rest of the block is filled with zero bytes. The data cannot be longer than the block size.</p>
+<p>Note: When using data from a Recovery Data packet, it is important to check the Root packet's "lowest unused input block index". This is because when recovering from an "incremental backup", we don't want to try to use the parent's Recovery Data packets to recover the child's new data. Both parent and child can have Recovery Data packets using the same matrix packet and even reuse the recovery block indexes. We can find the upper limit of input blocks that can be recovered using the parent's recovery data by finding the Root packet that matches the checksum and looking at the Root packet's "lowest unused input block index".</p>
+<h4 id="recovery-external-data-packet">Recovery External Data Packet</h4>
+<p>This packet contains checksums of recovery blocks that are not stored inside a Recovery Data packet.</p>
+<p>This packet is added for completeness. In case some client wants to store recovery data outside a Par 3.0 packet.</p>
+<p>The External Recovery Data packet has a type value of "PAR ERD\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: External Recovery Data Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum from the Root packet</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum from the Matrix packet</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Index of the first recovery block</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">24*?</td>
+<td style="text-align: left;">{rolling hash, 16-byte fingerprint hash}</td>
+<td style="text-align: left;">A rolling checksum and fingerprint for each recovery block</td>
+</tr>
+</tbody>
+</table>
+<p>The Root packet checksum acts the same as with the Recovery Data packet.</p>
+<p>The Matrix packet checksum acts the same as with the Recovery Data packet. It is used together with the recovery block indices (below) to determine the row of the code matrix used to generate the recovery data.</p>
+<p>The index is the recovery block index for the first block for which there is a pair of hashes.</p>
+<p>The tuples contain a rolling hash (CRC-64-ISO) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of recovery blocks. Thus, the first pair of checksums is for a block with the index written in the packet. The second pair of checksums is for the recovery block index plus 1. Etc.</p>
+<p>Note: The rolling hash is used to locate a block when recovery data might have shifted location. The fingerprint hash is used to confirm that the recovery block is the correct block (because the rolling hash is less trustworthy). There is more about the rolling hash in the section "Rolling Hash" below.</p>
+<h4 id="file-packet">File Packet</h4>
+<p>This represents a file in the input set. It holds a filename, optional file permissions, and the mapping of the file's data to input blocks.</p>
+<p>Parchive 3.0's default behavior is to ignore all metadata except for the filename (and directory location, which is stored elsewhere). Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some file systems.</p>
+<p>The File packet has a type value of "PAR FIL\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: File Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of filename in bytes</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">filename</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">rolling hash</td>
+<td style="text-align: left;">hash of the first 16kB of the file</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">number of options (a.k.a. permissions)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">16*?</td>
+<td style="text-align: left;">fingerprint hashes</td>
+<td style="text-align: left;">checksums of packets for options</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?*?</td>
+<td style="text-align: left;">chunk descriptions</td>
+<td style="text-align: left;">see below.</td>
+</tr>
+</tbody>
+</table>
+<p>The first field holds the length of the filename in bytes. (FYI: 255 bytes is the limit on NTFS, EXT4, and exFAT. ReiserFS supports 255 characters, in up to 4kB of storage. Yutaka-Sawada claimed Windows Explorer allowed him to name files with 239 Japanese Unicode codepoints, each of 3-bytes in size, which is 717 bytes.)</p>
+<p>The filename is a UTF-8 string. It is not NUL-terminated.</p>
+<p>The third field holds a rolling hash of the first 16kB of the file. (Note: 16kB is 16*1024 bytes.) This value is used to quickly identify files that have been moved or renamed. If the file is shorter than 16kB, the field holds the rolling hash of the entire file. If any of the first 16kB bytes of the file are unknown, this field is all zeroes. This hash is only a hint --- it is not guaranteed to match an input file because any bytes at the front of a file might have been damaged (deleted/replaced/added). The value is not guaranteed to be unique, since many files can start with the same first 16kB bytes (and because the rolling hash is not guaranteed to be unique).</p>
+<p>The next two fields hold the number of options and the checksums of the packets holding those options. For a File packet, the options are FAT Permissions packets and UNIX Permissions packets. There can be at most one of each type. Future versions of Parchive may include more option packets (for example: NTFS permissions, etc.). Clients can add their own custom packet types that can appear as File packet options. If the decoding client cannot find a packet with that checksum or does not recognize an option packet, the client may still recover the file. Clients SHOULD warn the user if a packet with a particular checksum could not be found or if an option packet's type is not recognized.</p>
+<p>The last field is a sequence of chunk descriptions. The input file is divided into a sequence of variable-length chunks and the chunk descriptions explain how to map each chunk to input blocks. The chunks cover every byte of the file and do not overlap. The chunk descriptions are in the order that the chunks appear in the file. Thus, the starting location of a chuck can be determined by summing the lengths of the preceding chunks. The length of the file can be determined by summing the lengths of all chunks.</p>
+<p><em>Table: File Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of chunk</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">hash of chunk or zeros if not protected</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">OPTIONAL [length is least 1 block size] index of first input block holding chunk</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?1 to 39</td>
+<td style="text-align: left;">raw data</td>
+<td style="text-align: left;">OPTIONAL [tail &gt; 0 bytes and tail &lt; 40 bytes] tail's contents</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?8</td>
+<td style="text-align: left;">rolling hash</td>
+<td style="text-align: left;">OPTIONAL [tail &gt;= 40 bytes] hash of first 40 bytes of tail</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">OPTIONAL [tail &gt;= 40 bytes] hash of all of tail</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">OPTIONAL [tail &gt;= 40 bytes] index of block holding tail</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">OPTIONAL [tail &gt;= 40 bytes] offset of tail inside block</td>
+</tr>
+</tbody>
+</table>
+<p>A chunk description starts with the length of the chunk and a fingerprint hash of the chunk's entire contents. If the chunk's contents are unknown and not protected by the recovery data, the fingerprint hash value is set to all zeroes. (This is used with the "Par inside" feature described below.) If the chunk's length is at least 1 block-size and the fingerprint hash is not zeroed, the next field holds the index of the first input block holding the chunk's data. That first input block holds the first block-sized piece of the chunk's data. Subsequent block-sized pieces of the chunk are assigned to increasing input block indices. If the chunk's total size is not a multiple of block-size, the chunk with end with a "tail" that is less than a block-size long. The remaining fields cover the tail.</p>
+<p>If there is a tail and the fingerprint hash is not zeroed and the tail is less than 40-bytes long, the tail's raw data is inserted into the chunk description. (This is known as "inline data".) If there is a tail and the fingerprint hash is not zeroed and the tail is longer than 40 bytes, the final 4 fields exist to cover it. The fields are: a rolling hash of the first 40 bytes of the tail, a fingerprint hash of the entire tail, the index of the input block holding the tail's data, and the offset of the start of the tail inside that block. Many tails can be packed into a single input block. Each tail must lie completely inside the single input block holding it and not cross a block boundary.</p>
+<p>Chunk descriptions will be easier to understand with a few examples. Assume we have a block size of 2,000 and a 10,000 byte file following the pattern "abcdefghij", where each letter represents 1,000 bytes of data. So "a" actually means 1,000 copies of the letter 'a'. That file would have the following chunk description. (Fingerprint and rolling hashes have been dropped for clarity.)</p>
+<pre><code>  {length=10000, firstblockindex=0}
+</code></pre>
+<p>The blocks would be: 0:"ab", 1:"cd", 2:"ef", 3:"gh", 4:"ij"</p>
+<p>The second example is a file that has a "tail". An 11,000-byte file following the pattern "abcdefghijk" might have the chunk description:</p>
+<pre><code>  {length=11000, firstblockindex=0, tailblockindex=5, tailoffset=0}
+</code></pre>
+<p>The blocks would be: 0:"ab", 1:"cd", 2:"ef", 3:"gh", 4:"ij", 5:"k\0"</p>
+<p>The third example is a file that uses multiple chunks. Assume there are two versions of a file. The old version of the file is the file from the previous example. The new version of the file is 15,000-bytes and follows the pattern "abcde0123fghijk", because "0123" has been inserted into the middle of the file. The new file could be be encoded as 3 chunks. The first and third chunks reuse the data from the old version of the file and the middle chunk contains the inserted "0123":</p>
+<pre><code>  {length=5000, firstblockindex=0, tailblockindex=2, tailoffset=0}
+  {length=5000, firstblockindex=6, tailblockindex=2, tailoffset=1000}
+  {length=5000, firstblockindex=3, tailblockindex=5, tailoffset=0}
+</code></pre>
+<p>The blocks would be: 0:"ab", 1:"cd", 2:"ef", 3:"gh", 4:"ij", 5: "k\0", 6: "01", 7: "23".</p>
+<p>The fourth example has tail packing and a small file. A 3,000-byte file following the pattern "abc" and a 1,000-byte file following the pattern "z" might have the chunk descriptions:</p>
+<pre><code>  {length=3000, firstblockindex=0, tailblockindex=1, tailoffset=0}
+</code></pre>
+<p>and</p>
+<pre><code>  {length=1000, tailblockindex=1, tailoffset=1000}
+</code></pre>
+<p>The blocks would be: 0:"ab", 1:"cz"</p>
+<p>A fifth example has a 3,000-byte file following the pattern "abc" and a super tiny 10-byte file whole complete contents are "qrstuvwxyz". The chunk descriptions would be:</p>
+<pre><code>  {length=3000, firstblockindex=0, tailblockindex=1, tailoffset=0}
+</code></pre>
+<p>and</p>
+<pre><code>  {length=10, taildata=&quot;qrstuvwxyz&quot;}
+</code></pre>
+<p>The blocks would be: 0:"ab", 1:"c\0"</p>
+<p>Note: The filename is a filename, not a path.</p>
+<p>Note: See the security section of this document about checking filenames to avoid security breaches. The security section also has suggestions on selecting filenames that will be portable across file systems.</p>
+<p>Note: When assigning the indexes of input blocks used to hold data, clients should generally assign them in increasing order, starting at 0. The unused higher values are reserved for "incremental backups" that will use this input set as a parent.</p>
+<p>Note: Simple clients will probably write Par3 files where each input file consist of a single chunk. More complex clients may use rolling hashes or "content-defined chunking" or version control data to identify files that share content. In those cases, the same chunk description may appear in multiple File packets or, even, appear multiple times inside the same File packet. Although clients writing the file have the choice to support multiple chunks, clients reading the file do not. All clients MUST be able to decoded File packets with multiple chunk descriptions and perform recovery. For more information on chunks, see the section "Chunking and Deduplication".</p>
+<p>Note: Simple clients can put each "tail" that is longer than 40-bytes into its own input block with a zero offset. More complex clients may pack multiple "tails" into the same input block. Nonetheless, all clients MUST be able to decode File packets where multiple tails are packed into the same input block and perform recovery.</p>
+<p>Note: Chunk descriptions can reuse input blocks without being identical. Tails of files can overlap inside the same input block. Neither of these cases is expected to be common, but they are allowed by the current version of the specification.</p>
+<p>Note: Rolling hashes with a block-size window can be used to identify potential data blocks. Those data blocks can be confirmed using their fingerprint hashes. Once that has been done, rolling hashes with a 40-byte window can be used to identify that start of tails. Those tails can be confirmed using their fingerprint hashes.</p>
+<p>Design Note: Most file systems store each file's name inside the directory that contains it. That can make the directory structure very large. In Par3, the file's name is included inside the File packet, instead of the Directory packet, to make packets more equally sized.</p>
+<h4 id="directory-packet">Directory Packet</h4>
+<p>This packet represents a sub-directory holding files from the input set. (The top-level directory is represented by the Root packet.)</p>
+<p>Parchive 3.0's default behavior is to ignore all metadata except for the directory's name (and location in parent directories). Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some file systems.</p>
+<p>The Directory packet has a type value of "PAR DIR\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Directory Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of string in bytes</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">name of directory</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">number of options (a.k.a. permissions and links)</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16*?</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">checksums of packets for options</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?*16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">checksums of File and Directory packets</td>
+</tr>
+</tbody>
+</table>
+<p>The first byte is the length of the directory's name in bytes.</p>
+<p>The directory's name is a UTF-8 string. It is not NUL-terminated.</p>
+<p>The next two fields hold the number of options and the checksums of the packets holding those options. Notice that the number of options is a 4-byte unsigned integer, while it is only 1-byte for the File packet. The checksums are in numerical order. For a Directory packet, the options include Link packets, FAT Permissions packets and UNIX Permissions packets. The permissions apply to the directory itself, so there can be at most one of each type. There can be any number of Link packets, representing hard or symbolic links contained in the directory. Future versions of Parchive may include more option packets (for example: NTFS options, special file types, etc.). Clients can add their own custom packet types that can appear as Directory packet options. If the decoding client cannot find a packet with that checksum or does not recognize an option packet, the client may still recover the directory and its contents. Clients SHOULD warn the user if a packet with a particular checksum could not be found or if an option packet's type is not recognized.</p>
+<p>The final field is a sequence of packet checksums. For each file and subdirectory contained in the directory, the checksum of the associated File packet or Directory packet is present here. The checksums are in numerical order.</p>
+<p>It is not allowed for the Directory packet to contain Files or Directories or Links with duplicate names. Each name must be unique.</p>
+<p>Note: The Directory packet and all the File and Directory packets reachable by following checksums represent a tree. Every supported file system supports a directory tree. Some file systems, like EXT4 and NTFS, support a directed acyclic graph or "DAG", while others, like FAT and exFAT, do not. It is valid for the checksum of a File or Directory packet to appear inside multiple Directory packets. When that occurs, it represents a complete copy of the file or subdirectory. It is not a hard link. A common occurrence of this would be 2 different empty directories with the same name. See the Link packet to see how DAGs are supported by hard links.</p>
+<p>Note: Parchive 3.0 supports empty directories.</p>
+<h4 id="root-packet">Root Packet</h4>
+<p>This packet identifies the top directory in the directory tree holding the input set.</p>
+<p>The Root packet has a type value of "PAR ROO\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Root Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">Lowest unused index for input blocks.</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">attributes</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">number of options (a.k.a. links)</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16*?</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">checksums of packets for options</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?*16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">checksums of File and Directory packets</td>
+</tr>
+</tbody>
+</table>
+<p>The first field holds the lowest unused index for input blocks. If a client generates an "incremental backup" with this packet's input set as the parent, the client can start assigning new input blocks at this index.</p>
+<p>The attributes is a bit field. At the moment, only the least significant bit is used. If it is 0, the directory is a relative path. If it is 1, the directory is an absolute path. All bits besides the least significant bit must be set to zero.</p>
+<p>The next two fields hold the number of options and the checksums of the packets holding those options. Notice that the number of options is a 4-byte unsigned integer, while it was 1-byte for the File packet. The checksums are in numerical order. For a Root packet, the options are Link packets. There can be any number of Link packets, representing hard or symbolic links contained in the root directory. Future versions of Parchive may include more option packets (for example: special file types, etc.). Clients can add their own custom packet types that might appear as Root packet options. If the decoding client cannot find a packet with that checksum or does not recognize an option packet, the client may still recover the directory's contents. Clients SHOULD warn the user if a packet with a particular checksum could not be found or if an option packet's type is not recognized.</p>
+<p>For each file and subdirectory contained in the top-level directory, the checksum of the associated File packet or Directory packet is contained in the Root packet. This is similar to the Directory packet. The checksums are in numerical order.</p>
+<p>It is not allowed for the Root packet to contain Files or Directories or Links with duplicate names. Each name must be unique.</p>
+<p>There is at most one Root packet with a given InputSetID. The packet can be duplicated.</p>
+<p>Note: The Root packet's checksum represents a checksum for the entire input set. This is because file data and metadata is reflected in the checksum of the File packets. The directory contents and metadata are reflected in the checksum of each Directory. And all of the above are reflected in the checksum of the Root packet.</p>
+<p>Note: Since the Root packet acts like a directory, its contents have the same restrictions as the Directory packet. Notice, however, that permission packets are NOT allowed as options for the Root packet (but are for Directory packets).</p>
+<p>Note: The Root packet's header contains the InputSetID, which is a checksum of the Start packet's contents. The Start packet contains the checksum of the parent's Root packet. Thus, the complete chain of ancestors is determined by Start/Root packets.</p>
+<p>Note: Some examples. If the input set consisted of one file "/usr/bin/bash", it would be encoded: Root(absolute)-&gt;Directory("usr")-&gt;Directory("bin")-&gt;File("bash",...) If it was one file "src/foo.c", it would be encoded: Root(relative)-&gt;Directory("src")-&gt;File("foo.c", ...). The "-&gt;" indicates including the checksum of the packet on the right is written into the packet on the left.</p>
+<p>Note: Windows has two forms of absolute paths: "C:\dir\file.txt" and "\dir\file.txt". The second one refers to a file on the current drive. The first is encoded: Root(absolute)-&gt;Directory("C:")-&gt;Directory("dir")-&gt;File("file.txt", ...) And the second: Root(absolute)-&gt;Directory("dir")-&gt;File("file.txt", ...). Thus, clients on Windows will need to look for Directory packets with drive names at the first level inside an absolute Root packet. When it happens, they must change drives accordingly.</p>
+<h4 id="file-system-specific-packets">File System Specific Packets</h4>
+<p>The following packets are used to contain the metadata for specific file systems. Clients are not required to support any of them. Clients MAY write the packets for the particular file system that the client is run on and may write additional ones. Clients SHOULD support decoding the packets that they write.</p>
+<p>The metadata often contains security-related features: ownership of files, etc.. Client authors need to take security seriously. We do not want Par3 to become a method for hackers to attack our users' systems. If a piece of metadata could be used to violate security, the default action of the client should be to ignore it or to query the user. It is REQUIRED that the user's permission be granted for any action that might jeopardize their security.</p>
+<p>In addition to the packet-specific information below, there is a separate section of this document devoted to security. Client authors should follow it and investigate any common ways to hack their particular system.</p>
+<p>Parchive 3.0 supports metadata for 2 file systems: a generic UNIX file system and FAT/FAT32/exFAT. Parchive 3.0 supports some features of NTFS, like precise timestamps and hard and symbolic links, but NTFS's complete file permissions were too complicated to include in version 3.0. Future versions of Parchive may support them. Clients on an NTFS file system that need to preserve more than FAT-style permissions and hard/symbolic links will need to use another program to preserve them.</p>
+<p>The encoding client can write permissions for as many file systems as chooses. It can write none or write both UNIX permissions for a file and also FAT permissions for the same file. The decoding client can choose to ignore all file-system specific permissions. If it chooses to support them, it should prefer the permissions for its current file system. (That is, prefer the Par3 file's UNIX permissions when on a UNIX file system and FAT permissions on an FAT/NTFS system.) If the permissions for the current file system are not in the Par3 file, the decoding client can attempt to translate the permissions in the Par3 file to the local system. However, that should be undertaken with extreme caution, due to the potential for errors weakening security.</p>
+<h5 id="link-packet">Link Packet</h5>
+<p>This packet represents a hard or symbolic link on UNIX and NTFS file systems. (The FAT and exFAT file systems do not support links.)</p>
+<p>The Link packet has a type value of "PAR LNK\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: Link Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">attributes</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of name in bytes</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">name of symbolic link or hard link</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of path in bytes</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">{UTF-8 string}</td>
+<td style="text-align: left;">path where NUL is the separator character</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">number of options (a.k.a. permissions)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">16*?</td>
+<td style="text-align: left;">fingerprint hashes</td>
+<td style="text-align: left;">checksums of packets for options</td>
+</tr>
+</tbody>
+</table>
+<p>The attributes is a bit field. At the moment, only the least significant bit is used. If it is 0, the link is a hard link. If it is 1, it is a symbolic link. All bits besides the least significant bit must be set to zero.</p>
+<p>The link's name is encoded as the length of the link's name in bytes and the UTF-8 string containing the name.</p>
+<p>Next are the length of the path in bytes and UTF-8 strings containing the path. The path separator is the NUL character, the byte 0. (In C, C++, and Java, it is written '\0'.) If a path is an absolute path, the first character is NUL. There is no NUL character at the end of the string. Thus, a UNIX path "/usr/bin/bash" is encoded "\0usr\0bin\0bash", using the C convention of "\0" for the NUL character. The path "src/foo.txt" would be encoded "src\0foo.txt". (The previous strings do not follow the C convention of an implicit NUL at the end of the string. There is no NUL at the end of the path.) If the link is to a file in the input set, the names need to exactly match the names in the Directory and File packets. (Note: Yutaka-Sawada claimed "Windows actually supports 32767 UCS-2 characters (65534 bytes) in paths via UNC naming.")</p>
+<p>The final two fields hold the number of options and the checksums of the packets holding those options. The number of options is a 1-byte value, like the File packet. For a Link packet, the options are UNIX Permissions packets and FAT Permission packets. There can be at most one of each type. Future versions of Parchive may include more option packets (for example: NTFS permissions, etc.). Clients can add their own custom packet types that can appear as Link packet options. If the decoding client cannot find a packet with that checksum or does not recognize an option packet, the client can still recover the link. Clients SHOULD warn the user if a packet with a particular checksum could not be found or if an option packet's type is not recognized.</p>
+<p>Note: The length of the path is 2-byte unsigned integer, rather than a 1-byte unsigned integer, because paths can be longer than individual file/directory names.</p>
+<p>Note: A path is necessary to identify a particular target file or directory. A checksum of a File or Directory packet is not enough because duplicate files/subdirectories with the same name will have the same packet checksum. Moreover, the link could be to a file or directory outside the input set.</p>
+<p>Note: Creating a link to file outside the input set is a serious security risk. See the section of this document on security.</p>
+<p>Note: For most UNIX systems, the permissions of symbolic links are ignored. (The link's permissions are defined to be the same as that of the linked-to file.) However, on MacOS and FreeBSD, symbolic links can have permissions different than their target, so they are supported in this file format.</p>
+<h5 id="unix-permissions-packet">UNIX Permissions Packet</h5>
+<p>This packet holds the metadata from a generic UNIX system. The same packet stores the metadata for files and directories. It is based on Linux's EXT4 file system, but does not capture all the details of that system.</p>
+<p>The UNIX Permissions packet has a type value of "PAR UNX\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: UNIX Permissions Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">signed int</td>
+<td style="text-align: left;">atime, nanoseconds since the Epoch</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">signed int</td>
+<td style="text-align: left;">ctime, nanoseconds since the Epoch</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">signed int</td>
+<td style="text-align: left;">mtime, nanoseconds since the Epoch</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">owner UID</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">group GID</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">i_mode</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of string</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">name of owner</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">length of string</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">name of group</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?*(4+?)</td>
+<td style="text-align: left;">{2-byte unsigned int, UTF-8 string, 2-byte unsigned int, UTF-8 string}</td>
+<td style="text-align: left;">xattr name-value pairs</td>
+</tr>
+</tbody>
+</table>
+<p>The times are all in nanoseconds since the Epoch, UTC. They can hold EXT4's extended values.</p>
+<p>Owner UID, Group GID are 32-bit values, also to hold EXT4's extended values.</p>
+<p>The i_mode value contain the lower 12 bits of EXT4's values for the i_mode. (The file type is encoded elsewhere in Par3's packets.) The top 4 bits are all zeroes. See <a href="https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout#Inode_Table">https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout#Inode_Table</a></p>
+<p>The owner and group are also encoded as strings. The decoding client can decide if owner/group are determined by UID/GID or by username/groupname. (This is also how "tar" works.)</p>
+<p>The extended attributes are stored as name-value pairs. Both the name and value are stored as a 2-byte length of string followed by the UTF-8 contents of the string. The number of extended attributes is implicit, based on the length of the packet.</p>
+<p>The same UNIX Permissions can be applied to multiple files, directories, or links. That is, the checksum for a UNIX Permissions packet can appear in multiple File, Directory, or Link packets.</p>
+<p>Note: Different UNIX systems have different limits on the size of xattrs. Linux's interface, the Virtual File System (VFS), limits all xattr names to fitting in 64kB and each value to fitting in 64kB. EXT4 limits everything to fitting in 4kB. BTRFS limits everything to 16kB. Some file systems have no limit. The choice of supporting values of only 16kB in length is probably sufficient for most uses.</p>
+<p>Note: The "atime" field is the time the file was last accessed. Obviously, the Par3 client will be accessing the files. The encoding client can choose to store the previous access time or the time of access by the Par3 client. The decoding client can choose to use the time from the UNIX Permissions packet or the current time. (This behavior is similar to the GNU version of the program "tar" with use of the flag "--atime-preserve".)</p>
+<h5 id="fat-permissions-packet">FAT Permissions Packet</h5>
+<p>This packet holds the most of the metadata from a file or directory on a FAT/exFAT file system and some of the metadata for an NTFS file system. It is based on the Windows API calls.</p>
+<p>The FAT Permissions packet has a type value of "PAR FAT\0" (ASCII). The packet's body contains the following:</p>
+<p><em>Table: FAT Permissions Packet Body Contents</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">CreationTimestamp</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">LastAccessTimestamp</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">LastWriteTimestamp</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">bit field</td>
+<td style="text-align: left;">FileAttributes</td>
+</tr>
+</tbody>
+</table>
+<p>The "Timestamp"s are 100s of nanoseconds since Jan. 1, 1600, UTC. Timestamps use the UTC timezone.</p>
+<p>The attributes byte is a bit field. The bits are:</p>
+<p><em>Table: Attributes bit field</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Bit Index</th>
+<th style="text-align: left;">Attribute</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">0</td>
+<td style="text-align: left;">ReadOnly</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">Hidden</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">System</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">3</td>
+<td style="text-align: left;">not used (was "Volume")</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">4</td>
+<td style="text-align: left;">not used (is "Directory", but that data is stored elsewhere)</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">5</td>
+<td style="text-align: left;">Archive</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">6</td>
+<td style="text-align: left;">not used (was "Device")</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">7</td>
+<td style="text-align: left;">not used (was "Normal file", but that data is stored elsewhere)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">8 to 12</td>
+<td style="text-align: left;">not used</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">13</td>
+<td style="text-align: left;">Content not indexed</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">14 to 16</td>
+<td style="text-align: left;">not used</td>
+</tr>
+</tbody>
+</table>
+<p>Unused bits in the attribute bit field must be set to zero.</p>
+<p>The same FAT Permissions can be applied to multiple files, directories, or links.</p>
+<p>Note: On FAT, all timestamps are only accurate to 2 seconds.</p>
+<p>Note: On exFAT, the CreationTimestamp and LastWriteTimestamp are accurate to 10 milliseconds. The LastAccessTimestamp is accurate to 2 seconds.</p>
+<p>Note: On NTFS, Windows only guarantees that LastAccessTimestamp is accurate to 1 hour.</p>
+<p>Note: The "LastAccessTimestamp" field is the time the file was last accessed. Obviously, the Par3 client will be accessing the files. The encoding client can choose to store the previous access time or the time of access by the Par3 client. The decoding client can choose to use the time from the FAT Permissions packet or the current time. (This behavior is also optional in GNU version of the program "tar" by use of the flag "--atime-preserve".)</p>
+<p>Note: FAT and exFAT file systems store the UTC timezone offset for all timestamps. Those offsets are not preserved in this packet. The timestamps are all in UTC. Decoding clients can choose the timezone offset to write to the file system.</p>
+<p>Note: Windows supports additional file attributes, including: sparse (bit 9), compression (bit 11), and encrypted (bit 15). These bits are not supported by Par 3.0. (These bits cannot be set using the SetFileAttributesA API call.) Clients SHOULD warn users when these will not be preserved.</p>
+<h2 id="clarifications-and-commentary">Clarifications and Commentary</h2>
+<h3 id="security">Security</h3>
+<p>Security is a major issue for Parchive clients. Users will probably execute the client on untrusted files, downloaded from strangers. We do not want Parchive to be a means for hackers to attack a system.</p>
+<p>There are three major ways for hackers to attack using a Par3 file. The first is to get the client to run untrusted code. The second means of attack is to get the client to create or modify important files, such as overwriting the password file. The last attack is a "denial of service" where the attacker fills the hard drive completely. (Most operating systems require some empty space on a drive to operate.)</p>
+<p>The first means of attack is for hackers to get the client to run untrusted code. The most common example of this is a "buffer overflow attack". The design of the Par3 file format is made to avoid buffer overflow attacks. Every region of data has an explicit lengths. Strings are not NUL-terminated. This forces client writers to think about the sizes of buffers and how they use them.</p>
+<p>Client writers can find buffer overflows and other bugs using "fuzzing". Fixing those bugs will prevent hackers from being able to trick the client into running untrusted code.</p>
+<p>The second means of attack is to hack the file system. That is, to have the client modify the data or the permissions of an important file such that the system will read/execute the file or the user will unintentionally execute it. (We accept that the user can always intentionally run a program sent in an untrusted Par3 file.) An example of a hack of the file system is to overwrite the file containing usernames and passwords.</p>
+<p>Avoiding file system attacks takes care. Especially if the client is designed to run on multiple file systems and OSes. Each system has different vulnerabilities and all of them must be taken into account.</p>
+<p>One part of preventing these attacks is confirming that filenames are valid filenames. A filename should not contain a '\0' in the middle of it. It should not be a path (for example: not contain "/" on a UNIX system or "" on a Windows system. MacOS also accepts ":".). The filename should not violate conventions (for example: on UNIX, be named "." or "..".). It should not reference a networked filename or device name. (For example: Windows does not allow "COM0", "LPT0", and many more.)</p>
+<p>Slightly off the topic of security, this is probably a good place to recommended that users be warned when they create Par3 files containing names that are incompatible with Windows, Mac, or Linux systems.</p>
+<p>Reserved filenames:</p>
+<ul>
+<li>Windows: "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", and "LPT9".</li>
+<li>Linux: "." and ".."</li>
+<li>MacOS: "." and ".."</li>
+</ul>
+<p>Characters not allowed in filenames:</p>
+<ul>
+<li>Windows: &lt; &gt; : " / \ | ? *</li>
+<li>Linux: / \0</li>
+<li>MacOS: / \0 (Older versions used : as a special character)</li>
+</ul>
+<p>Other considerations:</p>
+<ul>
+<li>Window's shell uses: % ^ ; \t ' "</li>
+<li>UNIX shells use: [ ] * ? ; | &amp; ! ~ # &lt; &gt; ' ` " $ =</li>
+<li>UNIX shells hide files starting with "."</li>
+<li>UNIX programs have difficulty with files starting with "-"</li>
+<li>Difficult to type white space: \t \n \r \v \f</li>
+<li>White space at start or end of filename, including spaces.</li>
+</ul>
+<p>Another part of preventing file system attacks is to validate paths. For paths, major attacks will come by referencing a file using an absolute path ("/etc/passwd" or "C:\Windows\System32\Config") or escaping a subdirectory ("../../etc/passwd" or "....\Windows\System32\Config"). (Note: On Windows, an absolute path can start "C:" or "" or "\" for example. For UNIX, that means one starting with "/" or "//" or "~". For Mac, one can also start with ":". There may be other formats!) It is REQUIRED that the client get user approval before using an absolute path or using a feature like ".." in a path. For a GUI, this approval can come via a dialog box saying something like "This Par3 file is writing to an absolute path. This is dangerous, because it can overwrite system files like your password file. Do you want to allow this?" For a command line tool, the approval can come via a command line option. The default should always be to not allow this behavior.</p>
+<p>Clients are also REQUIRED to ask for permission when linking to files outside a subdirectory. That is, if the link target contains an absolute path or uses a feature like "..".</p>
+<p>Other attacks can come through file attributes. It is doubtful that setting a file to be "read-only" or changing its creation time will be part of an attack. But some attributes are means of attack. Clients SHOULD warn users when a file is marked "executable". Especially if the file is added to a place where users execute command. (For example: on UNIX, a hacker might write a program called "ls" into a directory in the user's PATH.) Clients need to be careful when setting the owner of a file. Client writers need to know the common attacks on their platforms. (For example: on UNIX, any file with both the "others may write" permission and the "Set UID" permission is a security hazard.) Clients are REQUIRED to get approval for any action that might compromise security.</p>
+<p>The third and last attack is one that fills up the entire file system. This is a "denial of service" attack, because most OSes cannot run when the file system is full. This attack is a possibility because it is not hard to create the Parchive equivalent of a "ZIP bomb": a small file that writes a stupendous amount of data to the file system. Client writers should also worry about this attack, because user may accidentally fill up their entire file system.</p>
+<p>Client writers can avoid this error by checking the amount of free disk space before writing. Client writers should also be aware of OS return values that indicate that free space is exhausted. (For example: on Linux, the write() system call can generate errors ENOSPC and EDQOUT.)</p>
+<p>Earlier versions of Parchive avoided including file permissions in the standard, because security issues are difficult to get right. Please take security seriously.</p>
+<h3 id="order-of-packets">Order of Packets</h3>
+<p>In order for a client to do single-pass recovery, the recommended order of packets is:</p>
+<ul>
+<li>Creator</li>
+<li>Start</li>
+<li>Matrix</li>
+<li>Data or External Data</li>
+<li>Root</li>
+<li>Recovery Data</li>
+</ul>
+<p>The File and Directory packets can appear in any place.</p>
+<p>The Matrix packets contain information (often hints) at how many buffers the receiver will have to allocate for the recovery data.</p>
+<p>Some vital packets (Start, Matrix, Root) are not recoverable using the Recovery data. Those packets will need to be repeated, at different places in the file.</p>
+<p>Single-pass recovery is only possible in some cases. If the packets do not arrive in the order above, a client will have to fall back to a multi-pass recovery algorithm.</p>
+<h3 id="alignment">Alignment</h3>
+<p>In Par2, the packets were forced to be "4-byte aligned". That is, packet lengths were always a multiple of 4 and the first byte of X-byte integers always had an index in the packet that was a multiple of X. Par3 has dropped the requirement that packets be aligned.</p>
+<p>Still, some processors --- either old ones like ARMv5 or new ones with SIMD instructions --- have significantly higher performance when values are aligned in memory. Par3 dropped the alignment requirement because there isn't a single alignment that works for all these processors. ARMv5 requires 4-byte alignment and some x86 AVX instructions require 64-byte alignment.</p>
+<p>Par3 does not require packets to be aligned, but a client author can introduce alignment to Data packets and Recovery Data packets written by their client by choosing an appropriate block size and inserting zero-byte padding before these packets. Remember, though, that a client must be able to read every Par3 file and not every client will generate aligned packets. And, in any case, alignment in any file can be thrown off when a byte is lost or gained during transmission. So, while a decoding client may run faster when a packet is aligned, it must still work properly if the packets are not aligned.</p>
+<p>In short, a client author can introduce alignment into their own files to increase performance, but cannot require alignment in all files.</p>
+<h3 id="galois-field-encoding">Galois Field Encoding</h3>
+<p>Parchive 3.0 supports any Galois field that is a power of 2^8. That is, any Galois field that fits neatly in one or more bytes. Clients must support every possible Galois field.</p>
+<p>Clients are expected to optimize performance for specific Galois fields. Some likely targets for optimization are:</p>
+<p><em>Table: Common Galois fields</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Size (bits)</th>
+<th style="text-align: right;">Generator (hexadecimal)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0x11D</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">16</td>
+<td style="text-align: right;">0x1100B</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">128</td>
+<td style="text-align: right;">(1 &lt;&lt; 128) + 0x43</td>
+</tr>
+</tbody>
+</table>
+<p>Note: The 8-bit Galois field is used by many error correction applications, including some implementations of RAID6.</p>
+<p>Note: The 8-bit Galois field with generator 0x11B is used by AES encryption and is supported by the x86 instruction GF2P8MULB. However, it tends not to be used for error correction, because it does not have a "primitive element". (See <a href="https://en.wikiversity.org/wiki/Talk:Reed%E2%80%93Solomon_codes_for_coders#The_magic_number_0x11D_(0b100011101)">https://en.wikiversity.org/wiki/Talk:Reed%E2%80%93Solomon_codes_for_coders#The_magic_number_0x11D_(0b100011101)</a>)</p>
+<p>Note: The 16-bit Galois field is the same as in Par 2.0.</p>
+<p>Note: All 64-bit Galois fields are supported by the x86 instruction CLMUL.</p>
+<p>Note: The 128-bit Galois field is implemented by Intel in this white paper: <a href="https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/carry-less-multiplication-instruction-in-gcm-mode-paper.pdf">https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/carry-less-multiplication-instruction-in-gcm-mode-paper.pdf</a></p>
+<p>Note: The ARM processor has an instruction extension called "NEON" with a VMULL instruction. VMULL.P8 will do eight 8-bit Galois field multiplications at once.</p>
+<h3 id="rolling-hash">Rolling Hash</h3>
+<p>The rolling hash is intended to find input blocks that have moved inside an input file. The rolling hash is fast, but imperfect. Thus, the rolling hash matches, the client will test the possible input block with the slower-to-compute fingerprint hash. But, when data is repetitive, this can lead to a problem.</p>
+<p>The problem with repetitive data is that many locations can match the rolling hash. Then, the slower fingerprint hash is computed at all those locations and the process of finding input blocks slows to a snail's pace.</p>
+<p>This problem doesn't occur if the user compressed the data before writing the Par3 file, because a compressed file is almost random. But the decoding client can't rely on the data being compressed.</p>
+<p>The decoding client can solve the problem of many blocks matching the rolling hash in many ways. One approach is to count the number of matches for each rolling hash value. If there many matches over a small area of the file, the client can ignore that rolling hash value for a while.</p>
+<p>Another approach is to scan a file twice. The first pass looks for all blocks that match the value of a rolling hash. The second pass computes the fingerprint hashes, prioritizing the blocks that match a unique rolling hash value and the blocks that do not overlap other blocks.</p>
+<h3 id="chunking-and-deduplication">Chunking and Deduplication</h3>
+<p>Par3 allows "deduplication". If an encoding client finds multiple copies of the same data in different input files (or inside the same input file), the client only needs to store one copy of it in the input blocks. This improves the chance of recovery for two reasons. First, when there are multiple copies of an input blocks in the original files, if any of them survives undamaged, the others can be recovered by copying the good version without consuming a recovery block. Second, if all copies are lost, it only consumes a single recovery block to fix multiple errors. So, when input files duplicate data, deduplication is a powerful feature to improve the chance of recovery.</p>
+<p>Deduplication is enabled in Par3 by chunks. If data is duplicated in multiple files or in the same file, the same chunk description can appear multiple times in File packets or in a single File packet. "Deduplication" is not required during encoding --- an encoding client can always encode each file as a single chunk. But when decoding, clients are required to support multiple chunks and do recovery with them.</p>
+<p>As an example, an encoding client might use a 2,000 byte block size and have two input files A and B, where A is 16,000 bytes long and follows the pattern "abc1234567890def" and B is 17,000 bytes long and follows the pattern "tuvw1234567890xyz". A client that does not deduplicate would encode each of these files as a single chunk. File A's chunk would contain 8 input blocks ("ab", "c1", "23", "45", "67", "89", "0d", "ef") and File B's chunk would contain 9 input blocks ("tu", "vw", "12", "34", "56", "78", "90", "xy", "z\0"). Any redundant data would protect those 17 input blocks.</p>
+<p>An encoding client that deduplicates could identify that "1234567890" is the same in each file. The file A would be broken into 3 chunks: "abc", "1234567890", and "def". The file B would also be broken into 3 chunks: "tuvw", "1234567890", and "xyz". When the chunks were chopped into input blocks, those would be: "ab", "c\0", "12", "34", "56", "78" , "90", "de", "f\0", "tu", "vw", "xy", "z\0". Thus, with deduplication, there would only be 13 input blocks. Not only would there be 2 copies of 5 of the input blocks in the input files, but the redundancy data would only have to protect 13 input blocks and, therefore, be more likely to recover from a problem.</p>
+<p>(Note: A client could also packs the tails of two chunks into the same input blocks. If the tails "c" and "f" were stored in the same input block, that would mean there were only 12 input blocks!)</p>
+<p>Clients that want to find duplicate data can do it in three possible ways. One technique is called "content-defined chunking". It breaks files into variable-length chunks based on their contents and then uses fingerprint hashes to identify duplicate chunks. The second technique uses rolling hashes of new data to identify block-sized pieces that are duplicates of existing input blocks. When a duplicate block is detected, the duplicate becomes the start of a new chunk. The chunk continues as long as the following block-sized pieces continue to duplicate the subsequent existing input blocks. The third technique is to query another system for the duplicate data. Some version control systems or file systems record duplicate data.</p>
+<h3 id="compression">Compression</h3>
+<p>Parchive 3.0 does not include compression, beyond deduplication. There are many compression algorithms and the right compression algorithm depends on the data. Users will get the most benefit by using video compression for video, audio compression for audio, etc..</p>
+<p>Despite common use of RAR for compression and splitting with Par2, RAR is rarely needed. See <a href="https://github.com/animetosho/Nyuu/wiki/Stop-RAR-Uploads">https://github.com/animetosho/Nyuu/wiki/Stop-RAR-Uploads</a></p>
+<p>Using compression can interfere with deduplication. When data is duplicated in many locations, a compression algorithm may encode each copy differently. When compressing highly duplicated data, there are two solutions. One is to deduplicate the data using Par 3.0, then compress the data, then protect the compressed file using Par 3.0 a second time. The other approach is to use a compression algorithm that collaborates with Parchive's deduplication. For gzip, the option "--rsyncable" will slightly impact compression, but allow deduplication to work.</p>
+<h3 id="sparse-matrices">Sparse Matrices</h3>
+<p>With a sparse matrix, it is faster to calculate recovery blocks, but the user has to accept a slightly higher chance of not recovering from extreme cases.</p>
+<p>A sparse random NxN matrix with at least N*ln(N) non-zero elements has rank N-K for some small K. When ln(N)&gt;3 or, equivalently N&gt;20, large values of K are very very rare. Invertible matrices have rank N, so these sparse random matrices with rank N-K are very very close to being invertible.</p>
+<p>To be specific about K and the rank, the probability for the rank being less than N-K for a given K is proportional to 1/(g^K) where g is the number of unique Galois field values. Thus, if matrix's elements are from a 1-byte Galois field with 256 values, the probably that the rank is less than N-3 is proportional to 1/(256^3) or less than one-in-a-million. For details, see "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl.</p>
+<p>Thus, if the recovery submatrix (called "C_good,bad" earlier) is NxN with at least N*ln(N) randomly non-zero elements and ln(N)&gt;3 (or, equivalently, N&gt;20), we can recovery almost all the input blocks. Specifically, N-K of them. And, if we augment the random matrix with K recovery blocks generated from a Cauchy matrix, which can recover any missing input blocks, we are very very likely to recover all the input blocks.</p>
+<p>Given this, how many random recovery blocks and Cauchy recovery blocks should be generated? If there are B input blocks and we want them to survive a maximum perfectly-random failure rate F and use constant K, then the number of sparse random recovery blocks should be <code>B\*F/(1-F)</code> and the number of Cauchy recovery blocks should be K/(1-F). The probability of a non-zero element in the sparse random matrix must be at least ln(N)/N, where <code>N=B\*F</code>. Please keep in mind that the math only works when ln(N)&gt;3 or, equivalently, N&gt;20. <em>WARNING: the math in this paragraph was done using expected values, not proper probability distributions, and may under estimate the probability of some events, such as losing multiple Cauchy recovery blocks, which could affect the probability of recovery.</em></p>
+<p>If it feels wrong to increase the probability of failure, recall that for any matrix, it must fail if B-1 or fewer input and recovery blocks arrive. Using a sparse matrix, rather than a Cauchy, can run up to N/ln(N) times faster. Users that can store/send a few additional recovery blocks can get much faster performance with a minuscule increase in failure to recover.</p>
+<h3 id="incremental-backup">Incremental Backup</h3>
+<p>The Parchive 3.0 specification allows new Par3 files to reuse the recovery data in existing Par3 files. That is, the recovery data from an old input set can be used to help recovery the files of new input set. This is (badly) called "incremental backup". This is different from deduplication, which reuses data inside the same input set. (Although, as you'll see, deduplication can be used within an incremental backup.)</p>
+<p>An incremental backup only makes sense when the new set of input files has a lot of overlap with the previous set of input files. The most common usage is when a user made a Par3 file, then added (relatively few) files to the directory tree or renamed some files, and now wants to make a new Par3 file. That new Par3 file, the "incremental backup", can reuse the file descriptions and recovery data in the existing Par3 file. An incremental backup can contain any changes, including modified files or deleted files, but it becomes less efficient with more and larger changes.</p>
+<p>I'll use the term "parent" to refer to the pre-existing Par3 file(s) and "child" to refer to the new Par3 file(s). The child may also be called the "incremental backup".</p>
+<p>A client creates an incremental backup by writing the InputSetID of the parent into the child's Start packet. The child's Start packet must also have the same block size, Galois field, and Galois field generator as the parent's.</p>
+<p>The child will have a new Root packet, which determines the input set for the incremental backup. The child can reuse File, Directory, and file-system specific packets from the parent to encode that input set. The child will have to contain new File packets for all the files that have changed and new Directory packets when the contents of the directory or any of its subdirectories have changed. So, if a single file has changed, the child will be one new File packet, a new Directory packet for every directory above the file, and a new Root packet.</p>
+<p>If any file data has changed or been added, the child will have new input blocks. These are assigned indices greater than any index used by a parent's input block. The lowest input block index that went unused by the parent can be found in the parent's Root packet.</p>
+<p>If a new file's contents are similar to a previous version, the encoding client can do deduplication to reuse the data stored for the parent's version of the file. See the section on "Chunking and Deduplication" above. The child's File packets' chunk descriptions will reference the input blocks of the parent's version of the file. Reusing data from the parent's input blocks is not required, but can save a lot of storage and significantly increase the probability of a recovering data.</p>
+<h3 id="par-inside-another-file">Par Inside Another File</h3>
+<p>Par3 packets can be used to protect the file in which they are stored. They cannot protect all of the file, because Par3 packets only protect the input data and not themselves. When Par3 data is used inside another file format to protect it, we call it "Par inside". So, if Par3 data protects a ZIP file, we call it "Par inside ZIP".</p>
+<p>An example of using Par-inside is with the ZIP file format. The ZIP file format stores compressed files at the front and the list of all files at the end, but, inbetween, space can be used for any data without affecting the ZIP file's contents. Par3 packets can put in this space. The Par3 packets can protect the start and end of the file, where ZIP stores its data. This way, if the file ever gets damaged, the Par3 packets can be used to fix the ZIP data. It is a file that contains data to repair itself.</p>
+<p>To make Par-inside work, the Par3 packets need to contain one File packet, which refers to the file itself. Thus, the name in the File packet must match the name of the file. The File packet's chunk descriptions must contain checksums for the protected portions of the file and must have zeroed checksums for where the Par3 packets will be written into the file. In the case of the ZIP file, only the start and end of the file would have chunk descriptions with checksums. The middle of the file, where the Par3 packets are stored, would have a chunk description with a zeroed checksum. Obviously, External Data packets would be used and not Data packets.</p>
+<p>It is possible to use Par3 packets to protect the Par3 packets of a different input set. This is useful because some parts of the Par3 file are not redundant. When we use Par to protect the non-redundant parts of a Par3 file, we call this "Par inside Par". Thus, instead of repeating vital packets (Start, Matrix, Root File, Directory, and Root packets), the sections of the file containing them would be protected using "Par inside". The Par-inside packets would be distinguishable from the "outside" Par3 packets because they would have a different InputSetID.</p>
+<p>The "inside" Par3 packets cannot protect themselves. The vital "inside" Par3 packets would still need to be repeated and spread through out the file. The "Par inside Par" concept only makes sense if the vital "outside" Par3 packets take up a lot of space in the Par3 file. For example, when storing a large number of files. Then, the space used by vital "inside" Par3 packets would be much smaller than the vital "outside" Par3 packets and repeating the vital inside Par3 packets would shrink the overhead and minimize the amount of data could make the Par3 file unusable.</p>
+<h2 id="conventions-1">Conventions</h2>
+<p>The above is the official spec. It is what all clients must implement. This section discusses conventions, which are what most clients will want to do, so that users have a common expectation of how a Parchive client behaves.</p>
+<p>Par3 files should always end in ".par3". For example, "file.par3". If a file contains recovery blocks, the ".par3" should be preceded by ".volXX+YY" where XX is the number of previous recovery blocks and YY represent the number of recovery blocks in this file. For example, "file.vol20+10.par3" means this starts with the 20th recovery block and contains 10 recovery blocks. More than 2 digits should be used if necessary. Any numbers that contain fewer digits than the largest exponent should be preceded by zeros so that all filenames have the same length. For example, "file.vol075+10.par2". Numbers should start at 0 and go upwards.</p>
+<p>If a Par3 file contains input blocks, the ".par3" should be preceded by ".partXX+YY", where XX is the number of previous input blocks and YY is the number in this file.</p>
+<p>If multiple Par3 files are generated, they may either contain a constant number of blocks per file (for example: 20, 20, 20, ...) or exponentially increasing number of blocks (for example: 1, 2, 4, 8, ...). Note that to store 1023 blocks takes 52 files if each has 20 blocks, but takes only 10 files with the exponential pattern.</p>
+<p>When generating multiple Par3 files, it is expected that one file be generated without any Recovery Data packets and containing all the packets needed to verify correct transmission of the files. That is, contain the Start, External Data, File, Directory, and Root packets. It may also contain the Matrix packets.</p>
+<p>The other files should either (1) include duplicates of all those vital packets or (2) use "Par inside Par" to protect damage to them. "Par inside Par" is creating using Par3 packets with a different InputSetID. That input set would contains the Par3 file itself as an input file. "Par inside Par" is useful when the space taken up by the vital packet is large. Duplicating it would take up a lot of space. When using "Par inside Par", the outer Par3 data would only need to protect 1 file and duplication of its vital packets would not take up much space.</p>
+<p>If just a single Par3 file is generated, it is expected that the vital packets are repeated multiple times and scattered through out the file. (Once again, repeating data that cannot be recovered.) Or, "Par inside Par" data can be generate and scattered through out the file.</p>
+<p>Recall that all files must contain a creator packet.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>Parchive 3.0 is a big step over Parchive 2.0. It has new capabilities (deduplication, incremental backups, Par-inside), expanded capabilities (more than 2^16 blocks/files) and is very flexible (any Galois field and any code matrix). We hopes that Parchive 2.0's current users enjoy the new features and we hope that Par 3.0 finds new uses and users.</p>
+<h2 id="appendix-a-license">Appendix A: License</h2>
+<p>Unfortunately there is not a standard license for file formats. Thus, this is a custom license. It is very restrictive, but may be loosened in the future.</p>
+<p>The authors reserve all legal rights to this document, including copyright and servicemarks, with the following exceptions:</p>
+<ul>
+<li><p>Everyone is free to copy this document unchanged.</p></li>
+<li><p>Everyone is free to write programs that implement this file format.</p></li>
+<li><p>Everyone is free to promote programs that implement this file format using such language as "Par3", "Parchive 3", etc. and using files ending in ".par3", or similar.</p></li>
+<li><p>If any person or company that promotes a program claiming to implement this format and using such language as "Par3", "Parchive 3" or files ending in ".par3" or similar, everyone is allowed to sue that person or company for damages if the program does not comply with this format. Damages should be large enough to deter persons or companies from falsely using such language. Damages should be large enough to incentivize the enforcement of this clause.</p></li>
+<li><p>Persons and companies are allowed to create and distribute derivatives of this file format. They are not required to publish the details of their format. They are not allowed to claim to be this format (such as using "Par3") or the rightful heir to this file format (such as using language like "Par3.1", "Parchive 4" or files ending in ".par5", or similar).</p></li>
+<li><p>Any rightful heir to this file format, which is allowed to use such language as "Par3.1", "Parchive 4", or files ending in ".par5", or similar, must be done using an open process, carry similar right as contained in this document, and to involve Michael Nahas, if possible. For a definition of "open process", judges are instructed to consult Lawrence Lessig, the Creative Commons, the Software Freedom Law Center, and the Free Software Foundation.</p></li>
+</ul>
+<p>This was written by a non-lawyer, Michael Nahas. Any judge should interpret this license from its intent and not as precise legalese.</p>
+<h2 id="appendix-b-example-application-specific-packet-type">Appendix B: Example Application-Specific Packet Type</h2>
+<p>Say the author of "NewsPost" wanted to add his own packet type - one that identified the names of the Usenet messages in which the files are posted. That author can create his own packet type. For example, here is the layout for one where the Usenet messages are identified by a newsgroup and a regular expression which all matches the names of the Usenet articles.</p>
+<p>The packet has a type value of "NPstMSGS" (ASCII). The author chose the prefix "NPst" for his client, "NewsPost", which prevents collisions with other clients. The packet's body contains the following:</p>
+<p><em>Table: Example Application Specific Packet</em></p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Length (bytes)</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">16</td>
+<td style="text-align: left;">fingerprint hash</td>
+<td style="text-align: left;">The checksum of the File packet</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">The length of the string (in bytes) containing the name of the newsgroup.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">The name of the newsgroup. For example, "alt.binaries.multimedia".</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">unsigned int</td>
+<td style="text-align: left;">The length of the string containing the regular expression.</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">?</td>
+<td style="text-align: left;">UTF-8 string</td>
+<td style="text-align: left;">A regular expression matching the name of articles containing the file. For example, "Unaired Pilot - VCD,NTSC - (??/??)".</td>
+</tr>
+</tbody>
+</table>
+<h2 id="appendix-c-example-of-a-deduplication-algorithm">Appendix C: Example of a Deduplication Algorithm.</h2>
+<p>There is a single-threaded algorithm that uses a window of size <code>2*blocksize-1</code> to do deduplication on new files. The client must store the rolling hashes and fingerprint hashes of all existing blocks. The client must also store a "preliminary chunk", which will be the next chunk but isn't final yet.</p>
+<p>The algorithm is best explained by working through an example. To make the example manageable, we'll use a blocksize of 6 bytes and assume the "inline data" feature for tails does not exist. Before starting, we'll assume the client has already processed as file with contents "aaabbbcccdddeeefffggghhhiiijjj" as a single chunk. The 6-byte input blocks would be: 0: "aaabbb", 1:"cccddd", 2:"eeefff", 3:"ggghhh", 4:"iiijjj".</p>
+<p>The algorithm will find duplicate blocks in a new file with contents "aaabbbcccdddeee000111222333fffggghhhiiijjj", where "000111222333" has be inserted into the middle of the old file. The algorithm works by sliding a window over the file. Since the block size is 6, the window size is 2*6-1 = 11 bytes. When we start to slide the 11-byte window over a file, its contents are:</p>
+<pre><code>W=[aaabbbcccdd]
+</code></pre>
+<p>The client scans the window using the rolling hashes of all the existing blocks (0 to 4). If there are any matches, the client confirms that it is the existing block using the existing fingerprint hashes. When the client does that on this window, it finds that "aaabbb" matches block 0. So that becomes the start of a preliminary chunk {length=6+?, firstblockindex=0, tail?} and the client moves the window beyond that block.</p>
+<pre><code>W=[cccdddeee00]
+</code></pre>
+<p>The client scans the new window with the existing hashes. The first complete block it finds is "cccddd". That is a continuation of the existing preliminary chunk, so it updates the preliminary chunk to {length=12+?, firstblockindex=0, tail?} and moves the window.</p>
+<pre><code>W=[eee00011122]
+</code></pre>
+<p>The client scans this window with the existing hashes. It finds no matches. There is a preliminary chunk that it has been working on, so the client checks if it has a tail. The last block in the preliminary chunk was block 1, so the client checks if the start of the window matches the start of the next block, which is block 2. This requires loading block 2 back into memory, which is expensive, but is necessary to find the tail. When it compares the start of the window to the start of block 2, it finds that "eee" is common to both. The client declares that that is the tail of the preliminary chunk. The client finalizes the chunk as {length=15, firstblockindex=0, tailblockindex=2, tailoffset=0}. The client moves the window past the tail.</p>
+<pre><code>W=[00011122233]
+</code></pre>
+<p>The client scans and finds no matches with existing blocks. It has no preliminary chunk, so it start a new preliminary chunk with a new input block. {length=6+?, firstblockindex=5, tail?} The client stores the rolling hash and fingerprint of the new block. The client moves the window past the new block.</p>
+<pre><code>W=[222333fffgg]
+</code></pre>
+<p>The client scans and finds no match. The client declares this a new block. It adds it to the end of the preliminary chuck and gets {length=12+?, firstblockindex=5, tail?}. It moves the window.</p>
+<pre><code>W=[fffggghhhii]
+</code></pre>
+<p>The client scans and finds an existing block, block 3, at offset 3. That existing block will become part of a new chunk, so the client has to finalize the existing preliminary chunk. The question is, what does the client do with the "fff"? Before writing "fff" into a new block, the client can recognize that "ggghhh" is in block 3 and that "fff" might be present at the end of block 2. So, it loads block 2 into memory and compares the end of block 2 to "fff". When it finds a match, the client finalizes the existing preliminary chunk as {length=15, firstblockindex=5, tailblockindex=2, tailoffset=3}. (If the end of block 2 did not match "fff", the tail would have been written into the first 3 bytes of block 7 and the finalized chunk would be {length=15, firstblockindex=5, tailblockindex=7, tailloffset=0}.) The client can now start a new preliminary chunk with the block it found: {length=6+?, firstblockindex=3, tail?}. It moves the window after the found block.</p>
+<pre><code>W=[iiijjj]
+</code></pre>
+<p>The scan says this is block 4. It is a continuation of the existing preliminary block. That becomes {length=12+?, firstblockindex=3, tail?}. The client moves the window.</p>
+<pre><code>W=[]
+</code></pre>
+<p>This is the end of file. The client finalizes the preliminary block as {length=6, firstblockindex=3}</p>
+<p>So the chunks are:</p>
+<pre><code>{length=15, firstblockindex=0, tailblockindex=2, tailoffset=0}
+{length=15, firstblockindex=5, tailblockindex=2, tailoffset=3}
+{length=6, firstblockindex=3}
+</code></pre>
+<p>The above algorithm is single-threaded and requires reloading some blocks into memory after they've been processed. However, reloading has to happen with any algorithm. The good news is that reloading only happens after an existing block has been identified, so if the process is slow, it is because deduplication is actually happening. That is, the user gets something for the delay.</p>
+<p>The above algorithm would not work in parallel. A similar parallel algorithm requires three passes over each file. In the first pass, for every file, the client computes the rolling hash and fingerprint hash at block-size offsets. (That is, as if the files were each a single chunk and chopped into block-size pieces.) The second pass would be similar to the single-threaded algorithm: running a rolling hash over every file and identify the matches to the blocks found in the first pass. The second pass would also identify the "tails" before and after the matching blocks. After the second pass, the client would run a fast single-threaded calculation where it decided what data would be put into which input blocks. After that, there would need to be a third pass, where the recovery data was calculated using the input blocks and their indexes.</p>
+<p>Note: Technically, the calculation of "deciding what data would be put into which input blocks" is an optimization problem. Finding the solution that uses the absolute minimum number of input block is probably NP-Complete. That is, the best known algorithms are all really slow in the worst case. But there are fast algorithms that get very good solutions, even if they cannot be guaranteed to be optimal in every case.</p>
