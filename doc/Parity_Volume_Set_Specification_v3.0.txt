@@ -146,7 +146,7 @@ PAR 3.0 uses multiple hash functions.  The "rolling hash" is CRC32C.  It is used
 
 The "fingerprint hash" is KangarooTwelve hash, a.k.a. K12 hash.  It is used to uniquely identify blocks.  If two blocks have the same fingerprint hash, they are assumed to have identical contents.  
 
-Every byte of a PAR file is specified. There are no places to throw junk bytes that can be any value.  Padding between packets, if done at all, is specified to be zero bytes.  The order of items in all arrays is specified.
+Every byte of a PAR file is specified.  Padding between packets, if done at all, is specified to be zero bytes.  The order of items in all arrays is specified.
 
 When discussing vectors and matrices, this document uses zero-indexing.  That is, the elements in a vector are at locations 0 through N-1.  (One-indexing, the usual convention in mathematics, has them at locations 1 through N.)
 
@@ -198,7 +198,7 @@ Creator packet
 
 This packet is used to identify the client that created the stream.  It is required to be in every PAR 3.0 stream.
 
-This packet is used for debugging.  If a decoding client is unable to recover the input set due to a badly created file, the contents of the creator packet MUST be shown to the user.  The goal of this is that any client incompatibilities can be found and resolved quickly.
+This packet is used for debugging.  If a decoding client is unable to recover the input set due to a badly created file, the contents of the creator packet MUST be shown to the user.  (An automated system MUST write the information to a log file.)  The goal of this is that any client incompatibilities can be found and resolved quickly.
 
 The Creator packet has a type value of "PAR CRE\0" (ASCII). The packet's body contains the following:
 
@@ -275,7 +275,7 @@ Length (bytes)	Type	Description
 8	unsigned int	The block index within the input stream.
 ?	byte[] 	 	The data itself. 
 
-The block index says where in the input stream the block is located.  The first byte of data is located at this index times the block size.
+The block index says where in the input stream the block is located.  The first byte of data is located at this index times the block size.  To be clear, the index is relative to the start of the stream and not the start of the stream segement.
 
 The data's length is implicit.  (The packet's entire length is written in the packet header.)   Data packets contain an entire block's worth of data.  If the data's length is less than the block size, the rest of the block will be filled with zero bytes.  The data cannot be larger than the block size.
 
@@ -295,7 +295,7 @@ Length (bytes)	Type	Description
 8	unsigned int	Index of the first input block in the stream
 16*?	{rolling hash, 12-byte fingerprint hash} A rolling checksum and finger print for each input block
 
-The index is the number of the first block for which there is a checksum.  The byte offset in the stream of the first byte in the first block will be this value times the block size.
+The index is the number of the first block for which there is a checksum.  The byte offset in the stream of the first byte in the first block will be this value times the block size.  To be clear, the index is relative to the start of the stream and not the start of the stream segement.
 
 The tuples contain a rolling hash (CRC32) and the lower 12 bytes of the fingerprint hash (K12 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block that starts at the index times the block size and goes for block size bytes.  The second pair of check sums is for the following block.  Etc.
 
@@ -307,6 +307,13 @@ Note: The rolling hash is used to locate a block when data might have shifted lo
 Add comment on how to avoid slowdown when the rolling hash matches repeated data, but the fingerprint hash does not.  The client will make almost no progress, going 1 byte at a time.
 
 /\ /\ /\ TODO /\ /\ /\
+
+\/ \/ \/ TODO \/ \/ \/
+
+Consider encoding duplicates using special values for the hashes.  This might work especially for ranges of duplicate blocks.
+
+/\ /\ /\ TODO /\ /\ /\
+
 
 
 
@@ -417,7 +424,7 @@ Table: Explicit Matrix Packet Body Contents
 Length (bytes)	Type	Description
 ?*(8+?)	{8-byte unsigned int, GF value}	zero-indexed input block, Galois field value
 
-The matrix contains values for a single row of the code matrix.  There will be only one recovery block associated with this matrix.  For each input block that is used to calculate the recovery block, there is a pair of the index of the input block and its Galois Field factor.  The pairs are in sorted order, with input block indices increasing from lowest to highest.
+The matrix contains values for a single row of the code matrix.  There will be only one recovery block associated with this matrix.  For each input block that is used to calculate the recovery block, there is a pair of the index of the input block and its Galois Field factor.  The pairs are in sorted order, with input block indices increasing from lowest to highest.  (Any indices not mentioned are assumed to have a factor of zero.)
 
 
 
@@ -432,7 +439,7 @@ Length (bytes)	Type	Description
 16	fingerprint hash	The checksum from the Matrix packet
 16	fingerprint hash	The checksum from the Segment End packet
 8	unsigned int	The index of the recovery block
-?*8	data	 	The recovery block data
+?	data	 	The recovery block data
 
 The recovery block data is calculated using the code matrix as determined by the Matrix packet checksum.  Notice that the index of the recovery block is dependent upon the Matrix packet.  For example, in a PAR stream using Explicit Matrix packets, there will be likely be a Recovery Data packet for each Explicit Matrix packet and all the Recovery Data packets will have 0 for the index of the recovery block.
 
@@ -467,12 +474,32 @@ The hash of the first 16kB of the file is used to identify files that have been 
 
 Sections of the file are mapped to the input stream.  Each section is specified by 4 values.  The first value is an offset in the file.  The second value is the length of the section to be mapped.  The third value is the offset in the input stream.  The fourth value is the K12 hash of the data in the section.   These groups of 4 numbers are sorted in order of the offsets in the file.  The mapping can not overlap in the file.  The mappings may overlap in the input stream, but that is an exceptional case where the file has repeated content.
 
+\/ \/ \/ TODO \/ \/ \/
+
+Are mapping offsets 8-byte values?
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+\/ \/ \/ TODO \/ \/ \/
+
+We need to state the parts of the file we are _not_ protecting.  We don't want random bytes able to be added to the end of any file.  
+
+/\ /\ /\ TODO /\ /\ /\
+
+
 Note: The filename is a filename, not a path.  
 
 Note: See the security section about checking filenames to avoid security breaches.  It also has suggestions on selecting filenames that will be portable across file systems.
 
 
 Directory Packet
+
+\/ \/ \/ TODO \/ \/ \/
+
+Warn client authors that the same file/directory can appear in multiple directory packets.  E.g., if a copy of the file/directory exists in multiple directories.
+
+/\ /\ /\ TODO /\ /\ /\
 
 This represent a directory in the input set.
 
@@ -503,16 +530,26 @@ The Root packet has a type value of "PAR ROO\0" (ASCII). The packet's body conta
 Table: Root Packet Body Contents
 Length (bytes)	Type	Description
 16	fingerprint hash       checksum of Directory packet
-16	fingerprint hash       checksum of Checkpoint packet
-8	unsigned int   attributes
+16	fingerprint hash       checksum of Segment End packet
+1	unsigned int   attributes
 
 The checksum of the Directory packet is used to identify the top-level directory. 
 
-The checksum of the Checkpoint packet identifies the data in the stream.  The maximum stream location that is mapped by a File packet must be less than or equal to the length of the stream in the Checkpoint packet.  
+The checksum of the Segment End packet identifies the data in the stream.  The maximum stream location that is mapped by a File packet must be less than or equal to the length of the stream in the Segment End packet.  
 
 The attributes is a bit field.  At the moment, only the least significant bit is used.  If it is 0, the directory is a relative path.  If it is 1, the directory is an absolute path.   All bits besides the least significant bit must be set to zero.
 
 There is at most one Root packet per stream segment.
+
+
+\/ \/ \/ TODO \/ \/ \/
+
+I need examples of directory layouts and the Root/Directory/File packets for them.
+
+Does the top-level Directory packet always have an empty string for a filename?
+
+/\ /\ /\ TODO /\ /\ /\
+
 
 
 
@@ -556,7 +593,7 @@ Length (bytes)	Type	Description
 
 The checksum is for a File packet, if one exists for this file.  A File packet will not exist for a symbolic link or a hard link (beyond the first one).  In those cases, the checksum is all zeros.
 
-The times are all in nanoseconds since the Epoch.  They can hold EXT4's extended values.
+The times are all in nanoseconds since the Epoch, UTC.  They can hold EXT4's extended values.
 
 Owner UID, Group GID are 32-bit values, also to hold EXT4's extended values.
 
@@ -589,6 +626,8 @@ Length (bytes)	Type	Description
 4      unsigned int	owner UID 
 4      unsigned int	group GID 
 2      unsigned int	i_mode
+2      unsigned int     number of extended attributes (xattr)
+?*(4+?)		{2-byte unsigned int, UTF-8 string, 2-byte unsigned int, UTF-8 string}  xattr name-value pairs
 2      unsigned int    length of string
 ?      UTF-8 string    name of owner
 2      unsigned int    length of string
@@ -629,7 +668,7 @@ Length (bytes)	Type	Description
 
 The checksum of the UNIX Directory packet is used to identify the top-level directory. 
 
-The checksum of the Root packet identifies the data in the stream, indirectly.  The Root packet contains the checksum of the Checkpoint packet.  The Root packet also identifies if the path is absolute or relative.
+The checksum of the Root packet identifies the data in the stream, indirectly.  The Root packet contains the checksum of the Segment End packet.  The Root packet also identifies if the path is absolute or relative.
 
 There is at most one UNIX Root packet per stream segment.
 
@@ -665,7 +704,7 @@ One part of preventing these attacks is confirming that filenames are valid file
 
 Slightly off the topic of security, this is probably a good place to recommended that users be warned when they create PAR files with names that are incompatible with Windows, Mac, or Linux systems. That is, file or directory names that are more than 255 characters long, start with a period (.) or a dash (-), or contain one of these characters: < > : " ' ` ? * & | [ ] \ ; or newline (\n).
 
-Another part of preventing file system attacks is to validate paths.  For paths, major attacks will come by referencing a file using an absolute path ("/etc/passwd" or "C:\Windows\System32\Config") or escaping a subdirectory ("../../etc/passwd" or "..\..\Windows\System32\Config").   (NOTE: On Windows, an absolute path can start "C:\" or "//" for example. For UNIX, that means one starting with "/" or "//". For Mac, one can start with ":".  There may be other formats!)  It is REQUIRED that the client get user approval before using an absolute path or using a feature like ".." in a path.   For a GUI, this approval can come via a dialog box saying something like "This PAR file is writing to an absolute path.  This is dangerous, because it can overwrite system files like your password file.  Do you want to allow this?"  For a command line tool, the approval can come via a command line option.  The default should always be to not allow this behavior.
+Another part of preventing file system attacks is to validate paths.  For paths, major attacks will come by referencing a file using an absolute path ("/etc/passwd" or "C:\Windows\System32\Config") or escaping a subdirectory ("../../etc/passwd" or "..\..\Windows\System32\Config").   (NOTE: On Windows, an absolute path can start "C:\" or "\" or "\\" for example. For UNIX, that means one starting with "/" or "//" or "~". For Mac, one can also start with ":".  There may be other formats!)  It is REQUIRED that the client get user approval before using an absolute path or using a feature like ".." in a path.   For a GUI, this approval can come via a dialog box saying something like "This PAR file is writing to an absolute path.  This is dangerous, because it can overwrite system files like your password file.  Do you want to allow this?"  For a command line tool, the approval can come via a command line option.  The default should always be to not allow this behavior.
 
 Clients are also REQUIRED to ask for permission when linking to files outside a subdirectory.  That is, if the link target contains an absolute path or uses a feature like "..".
 
@@ -705,11 +744,13 @@ Clients are expected to optimize performance for specific Galois fields.  Some l
 
 Table: Common Galois Fields
 Size (bits)    Generator (hexadecimal)
-8              0x11B 
+8              0x11D
 16             0x1100B
 128            (1 << 128) + 0x43 
 
-Note: The 8-bit Galois field is supported by the x86 instruction GF2P8MULB.
+NOTE: The 8-bit Galois field is used by many error correction applications, including some implementations of RAID6.  
+
+Note: The 8-bit Galois field with generator 0x11B is used by AES encryption and is supported by the x86 instruction GF2P8MULB.  However, it tends not to be used for error correction, because it does not have a "primitive element".   (See https://en.wikiversity.org/wiki/Talk:Reed%E2%80%93Solomon_codes_for_coders#The_magic_number_0x11D_(0b100011101))
 
 Note: The 16-bit Galois field is the same as in Par 2.0.
 
@@ -741,6 +782,12 @@ It's worth noting that if a user only wants to change the names of files in the 
 
 
 PAR Inside Another File
+
+\/ \/ \/ TODO \/ \/ \/
+
+Support empty filename to mean "this file".
+
+/\ /\ /\ TODO /\ /\ /\
 
 PAR packets can be used to protect the file in which they are stored.  They cannot protect all of the file, because PAR packets only protect the input data and not themselves.  When PAR is used inside another file format to protect it, we call it "PAR inside".  So, if PAR protects a ZIP file, we call it "PAR inside ZIP".
 
