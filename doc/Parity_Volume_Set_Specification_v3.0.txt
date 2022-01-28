@@ -38,6 +38,8 @@ Some minor differences from Par 2.0 are:
 * support for empty directories
 * support for more than 2^16 files
 
+(NOTE: The choice to focus on a protocol that could be used for streaming was a big one.  An alternate design would be to create a filesystem that supported redundancy.  E.g., a derivative of BTRFS with an additional tree of redundancy blocks.  That approach is an interesting direction, for any open source designers out there.)
+
 
 The "Big Picture":
 
@@ -56,7 +58,7 @@ r = | r_good |   i = | i_good |    C = | C_good,good C_good,bad |
 | r_bad  |            | i_bad  || C_bad,good  C_bad,bad  |            
 
 
-Our goal, of cource, is to recover the bad input data.  To do that, we pull out the equation for the good redundant data...
+Our goal, of course, is to recover the bad input data.  To do that, we pull out the equation for the good redundant data...
 
 r_good = i_good*C_good,good + i_bad*C_good,bad
 
@@ -120,20 +122,22 @@ All integers are little endian. (This is the default on x86 and x86-64 CPUs.)  S
 
 Strings are not null-terminated. This is to prevent hackers from using stack-overflow attacks. In order to make a string 8-byte aligned, 1 to 7 zero bytes may be appended.  If an N-byte field contains an array, a null-terminated string can be created by copying the N-byte field into a character array of length N+1 and then the setting the N+1 character to '\0'.
 
-The lengths of arrays and strings are often implicit. For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes. The string is then at least 17 bytes in length, since the 24 bytes contains 0 to 7 bytes of NUL padding at the end.
+The lengths of arrays and strings are often implicit. For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes. The string is then at least 17 bytes in length, since the 24 bytes contains 0 to 7 bytes of '\0' padding at the end.
 
 All strings are UTF-8.  Warning for OSX/MacOS clients: Unicode has multiple ways to encode the same string.  An e with an accent mark can be encoded as a single character (U+00e9) or two characters, one for the e (U+0065) and one for the accent mark (U+0301).  Par 3.0 does not require a particular encoding.  Forcing a particular encoding is called "normalization" in the Unicode vocabulary.  Most file systems do not normalize filenames and just treat the UTF-8 as a sequence of bytes.  Par 3.0 follows their practice.  However, HFS+ was Apple's default filesystem from 1998 to 2017 and it normalizes every filename.  Thus, if a Par client writes a file with a UTF-8 filename, the HFS+ file system may change the filename.  Clients for OSX/MacOS should be aware of this possibility.  Apple's current default filesystem, APFS, does not do normalization.  
 
 The lengths of files and locations in files are determined by 16-byte integers. 
 (Hard drive size doubles every 1.5 years and is expected to exceed 2^64 bytes before 2040.)  It is acceptable for clients to not support files (including the single virtual file) that are larger than 2^64.  Clients that do not support large files must inform the user if they encounter a PAR file containing too large a file.
 
+The block size and matrix indices are 8-bytes integers.  In order to protect files with more than 2^64 bytes, users must choose larger block sizes.  
+
 Par 3.0 uses multiple hash functions.  The "rolling hash" is CRC32C.  It is used to identify input blocks that are not in their expected location.  This hash is only 32 bits long and may not uniquely identify a block.  
 
 For uniqueness, Par 3.0 uses the KangarooTwelve hash, a.k.a. K12 hash.  This is a longer hash with cryptographic properties.  The K12 hash of a block or file is assumed to be unique.
 
-!!!!!!!!!! A collection of PAR files which recover the same set of files is identified by 16-byte value known as the Stream ID. Every part of the PAR file that affects a recovery set contains the recovery set ID. In this 3.0 version, the Recovery Set ID is calculated as K12 hash of certain values.  The way of calculating this value could change in future versions; clients reading files should not rely on how it is calculated.
+A collection of PAR files which should be processed together are identified by 16-byte value known as the Stream ID.  
 
-Input files are identified by a "file index", which is an 8-byte unsigned integer.  If there are N input files, they are assigned file indices of 0, 1, 2, ..., N-1.  The lowest file indices are assigned to files that have data to be protected.  The highest indices go to files with no protected data or no data at all (directories, hard links, symbolic links, etc..).  
+Input files have a "file index", which is an 8-byte unsigned integer.  For most uses, the file indices will be 0, 1, 2, ... N-1.  The file index is used to differentiate between two files that have the same contents, but are different files.  Files that do not contain data (directories, hardlinks, softlinks) do not have a file index.
 
 Every byte of a PAR file is specified. There are no places to throw junk bytes that can be any value. Padding, where needed, is specified to be zero bytes. The order of items in all arrays is specified.
 
@@ -148,19 +152,19 @@ Table: Packet Header
 Length (bytes)	Type	Description
 8	byte[8]	Magic sequence. Used to quickly identify location of packets. Value = {'P', 'A', 'R', '3', '\0', 'P', 'K', 'T'} (ASCII)
 8	8-byte uint	Length of the entire packet. Must be multiple of 8. (NB: Includes length of header.)
-16	K12 hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts at first byte of Recovery Set ID and ends at last byte of body. Does not include the magic sequence, length field or this field. !!!!!!!!---is the flowing true???????  NB: The MD5 Hash, by its definition, includes the length as if it were appended to the packet.
+16	K12 hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts at first byte of Stream ID and ends at last byte of body. Does not include the magic sequence, length field or this field.  NB: The K12 Hash, by its definition, includes the length as if it were appended to the packet.  !!!! IS THIS TRUE?
 16	K12 hash	StreamID.  All packets that belong together have the same Stream ID. (See below for how it is calculated.)
 16	byte[16]	Type. Can be anything. All beginning "PAR " (ASCII) are reserved for specification-defined packets. Application-specific packets are recommended to begin with the ASCII name of the client.
 ?*8	?	Body of Packet. Must be a multiple of 8 bytes.
 
-The StreamID is used to identify packets that should be processed together, even if those packets were written to separate PAR files or arrived via different transmission methods.  A StreamID is associated with a unique single virtual file together with the blocksize and Galois Field.  If the contents of the single virtual file are known, it could be a K12 hash of the single virtual file along with the blocksize and Galois Field parameters of the SingleVirtualFilePacket.  This is impossible in streaming or single-pass situations.  In those cases, it should be a globally unique random number.  One way to generate the random number is the K12 hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.
+The StreamID is used to identify packets that should be processed together, even if those packets were written to separate PAR files or arrived via different transmission methods.  A StreamID is associated with a unique single virtual file together with the block size and Galois Field.  If the contents of the single virtual file are known, it could be a K12 hash of the single virtual file along with the block size and Galois Field parameters of the SingleVirtualFilePacket.  This is impossible in streaming or single-pass situations.  In those cases, it should be a globally unique random number.  One way to generate the random number is the K12 hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.
 
 There are various types of packets. The "core" set of packets - the set of packets that all clients must recognize and process - are listed next. For each, the value for the "type" field will be listed along with the contents of the body of the packet. 
 
 
 Creator packet
 
-This packet is used to identify the client that created the file. It is required to be in every PAR file. If a client is unable to process a recovery set, the contents of the creator packet must be shown to the user. The goal of this is that any client incompatibilities can be found and resolved quickly.
+This packet is used to identify the client that created the file. It is required to be in every PAR file. If a client is unable to recover the input set, the contents of the creator packet must be shown to the user. The goal of this is that any client incompatibilities can be found and resolved quickly.
 
 The creator packet has a type value of "PAR 2.0\0Creator\0" (ASCII). The packet's body contains the following:
 
@@ -181,21 +185,21 @@ Table: Single Virtual File Packet Body Contents
 Length (bytes)	Type	Description
 8	8-byte uint	The size of the Galois field in bytes.
 ?*8	?-byte GF	The generator of the Galois field.
-8	8-byte uint	Number of Galois field elements in a block.
+8	8-byte uint	block size in bytes
 16      K12 hash        Stream ID of parent stream, or all zeros.
 16	16-byte uint	Length of single virtual file in parent stream, or all zeros.
 
-The block size is gotten by multiplying the size of the Galois field (in bytes) by the last field.  (Block size is encoded this way so that all unsigned integer values are valid.)
-
 The generator is an element of the Galois field, written in little-endian format and padded with 0 to 7 zero bytes afterwards.  Thus, if the Galois field had a size of 2-bytes and a generator of 0x0001100B, the first two bytes would hold the generator in little-endian format and the next 6 bytes would be zeroes.
 
-A client is not expected to support every Galois field.  It is required to support:
+A client must support every possible Galois field. 
+
+Clients are expected to optimize performance for specific Galois fields.  Some likely targets for optimization are:
 
 Table: Required Supported Galois Fields
-Size (bits)    Generator (in binary)
-8              0x11011B
+Size (bits)    Generator (hexidecimal)
+8              0x11B 
 16             0x1100B
-128            0x10000111B
+128            (1 << 128) + 0x43 
 
 Note: The 8-bit Galois field is supported by the x86 instruction GF2P8MULB.
 
@@ -206,8 +210,13 @@ Note: A 64-bit Galois field is supported by the x86 instruction CLMUL.
 Note: The 128-bit Galois field is implemented by Intel in this white paper:
 https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/carry-less-multiplication-instruction-in-gcm-mode-paper.pdf
 
-Note: The ARM processor has an instruction extension called "NEON" with a VMULL instruction.  VMULL.P8 will do eight 8-bit Galois field multiplications at once.  
+Note: The ARM processor has an instruction extension called "NEON" with a VMULL instruction.  VMULL.P8 will do eight 8-bit Galois field multiplications at once.
+
+The block size must be a multiple of 8.  It must also be a multiple of the Galois Field size. 
+
 The "parent stream" concept will mostly be used for incremental backups.  In this use case, there is an original backup of all files and then a incremental backup containing changes since the original.  The incremental backup is a different stream, but might want to reuse data in the single virtual file of the original backup.  By setting the final two fields, the incremental backup indicates that the first N bytes of its single virtual files are the same as the parent.  If the parent fields are set, the blocksize and Galois field must be the same as the parent's.  
+
+NOTE: The "parent stream" concept only NOT only copies the data in the single virtual file, but also the file indices, input file mapping, and input file meta data.  All packets from the parent stream should be processed as if part of the "child stream", with the exceptions of the Input Set Data Integrity packet and Input Set Metadata Integrity packet.
 
 For any Stream ID, there should be only 1 Single Virtual File Packet.  (The same packet may be repeated multiple times.)
 
@@ -221,9 +230,47 @@ The matrix rows packet has a type value of "PAR 3.0\0Rows\0\0\0\0" (ASCII). The 
 Table: Matrix Rows Packet Body Contents
 Length (bytes)	Type	Description
 16	K12 hash	The checksum from the packet header of the Single Virtual File Packet.
-8	unsigned int	The index of the first row described by this packet
-!!!!!!
+8	unsigned int	hint for number of rows 
+8	unsigned int	Method 
+?*8	?	 Additional data
 
+The hint to the number of rows is used in single-pass situations to allocate buffers.  If the number of rows is unknown, the hint is set to zero.
+
+PAR 3.0 supports 3 methods of generating elements of the matrix.  One method generates Cauchy matrices, used by Reed-Solomon.  A second method generates sparse random matrices, which are faster than Reed-Solomon and almost as good.  The third method explicitly lists the elements, which is how LDPC and all other methods are implemented. 
+
+For Cauchy matrices, the "Method" field is set to 0.  The "Additional data" field contains:
+
+Table: Matrix Rows Packet Body Contents --- Additional Data Cauchy
+Length (bytes)	Type	Description
+8	unsigned int	Number of zero columns
+
+For an element at zero-indexed row I and zero-indexed column J, the value is zero if I is less than the number of zero columns.  Otherwise, the element is the multiplicative inverse of x_I-y_I, where x_I is the Galois field element with the same bit pattern as twos-complement I+1 and y_J is the Galois field element associated with MAX-J where maximum unsigned twos-complement values with the same size as the Galois field.  (NOTE: In binary, MAX contains all ones.)
+
+For sparse random matrices, the packet's "Method" field is set to 1.  The "additional data" field contains:
+
+Table: Matrix Rows Packet Body Contents --- Additional Data Sparse
+Length (bytes)	Type	Description
+8	unsigned int	Number of zero columns
+8	unsigned int    lower bits of seed
+8       unsigned int	probability (encoded as an unsigned int) of a non-zero element
+
+The sparse random matrix uses the PCG-XSL-RR pseudorandom number generator.  The generator has 128-bits of state and generates 64-bit pseudorandom numbers.  For each row of the matrix, the 128-bit seed is initialized with the higher 64-bits equal to the zero-indexed column of the matrix and the lower 64-bits equal to the seed value from the packet.
+
+If the zero-indexed column number is less than the number of zero columns, then the column only contains zero Galois field values.
+
+Otherwise, each column's elements are generated sequentially.  If the pseudorandom number from the generator is, when treated as an unsigned 64-bit integer, is less than or equal to the probability, which is also treated as an unsigned integer, then the value is non-zero.  Non-zero elements are generated using pseudorandom numbers.  The lower bytes are assigned pseudorandom numbers before upper bytes.  If the element is too small to use a complete pseudorandom number, the lower bytes of the pseudorandom number are used and the upper bytes of the pseudorandom number are discarded.  If this random value turns out to be equal to zero, another random element should be generated.
+
+!!!!! Can we guarantee a certain number of non-zero elements in the column?
+
+This method creates a sparse matrix, where elements are non-zero with a given probability.  If there are N good recovery blocks and the probability is greater than log_e(N)/N, then, as N gets large, it is highly likely that recovery is possible.  So, if N=1000, then the probability needs to be at least 6.9%.   This property is a function of invertible matrices using 1-bit Galois fields, so it is even strong for the larger Galois fields used by PAR 3.0.
+
+For explicit matrices, the packet's "Method" field is set to 2.  The "additional data" field contains:
+
+Table: Matrix Rows Packet Body Contents --- Additional Data Sparse
+Length (bytes)	Type	Description
+?*?	{8-byte unsigned int, GF value, padding}	Number of zeros, element, 0 to 7 bytes of padding
+
+This matrix contains just one row.  For each non-zero value, there is a triple.  The first part of the triple is how many columns of zero values preceed the non-zero value.  The part of the triple is the Galois field value of the element.  The last part of the triple is 0 to 7 bytes of padding, to make the next triple (or the end of the packet) 8-byte aligned.  
 
 
 Data Packet
@@ -235,12 +282,19 @@ The data packet has a type value of "PAR 3.0\0Data\0\0\0\0" (ASCII). The packet'
 Table: Data Packet Body Contents
 Length (bytes)	Type	Description
 16	unsigned int	The byte offset in the single virtual file.
-8	unsigned int	The compression format.  (See below.)
+4	unsigned int	The compression format.  (See below.)
+12	K12 hash 	The hash of uncompressed data
 ?*8	unsigned int	The data itself.  Padded with 0 to 7 zero bytes, if needed.
 
-If the compression format code is 0, the data is uncompressed.  If this is used, the blocksize must be a multiple of 8 bytes.   !!!! Should I reserve 0 through 7, where the number is the amount of padding?
+If the compression format code is 0, the data is uncompressed.  
 
 If the compression format code is 1, the data is compressed with ZLIB.  
+
+The uncompressed data's size must be a multiple of the blocksize.
+
+
+!!!!! Should we allow the "hash of uncompressed data" to be zeroes if the data is uncompressed, since the packet already has a (longer) K12 hash checksum?
+
 
 
 Data Checksum Packet
@@ -251,6 +305,7 @@ The data packet has a type value of "PAR 3.0\0BlkChkSm" (ASCII). The packet's bo
 
 Table: Data Checksum Packet Body Contents
 Length (bytes)	Type	Description
+16	K12 hash	The checksum from the packet header of the Single Virtual File Packet.
 16	unsigned int	The location of the first byte of the first block in the single virtual file.
 ?*16	{CRC32C, K12 hash} array	CRC32C and 12-byte K12 hash for a sequence of blocks in the single virtual file.  The CRC32C comes before the 12-byte K12 hash.
 
@@ -272,9 +327,9 @@ Length (bytes)	Type	Description
 32	K12 hash	K12 hash of the protected section of the file
 ?*48	{index in input file, index in single virtual file, length} array	mapping of input file to single virtual file.  (See below.)
 
-The file index is described in the section called "Conventions".  All the files with protected data have consecutive indices starting at 0.
+The file index are usually assigned sequentially 0, 1, 2, etc..  It uniquely identifies a "normal file".  It also serves to make the checksum of this packet unique for files that have the same contents.  
 
-The checksum is only for the protected sections of the file, that is, those that are mapped to the single virtual file.  The checksum is for only those bytes in sequence, while completely skipping over all other parts of the file.  If only 10 bytes of 10 megabyte input file are mapped to the single virtual file, only 10 bytes are hashed. 
+The checksum is only for the protected sections of the file, that is, those that are mapped to the single virtual file.  The checksum is for only those bytes in sequence, while completely skipping over all other parts of the file.  If only 10 bytes of 10 megabyte input file are mapped to the single virtual file, only 10 bytes are hashed.  If the file has no sections that are mapped, it is the hash of an empty file.
 
 The mapping consists of triples, each representing a region mapped from the input file to the single virtual file.  The triples are: the location of the first byte in the input file, the location of the first byte in the single virtual file, and the length.  The triples are sorted by the first element: the location in the input file.  The regions specified by triples do not overlap.  That is, each byte of the input file can only appear in a single region.  
 
@@ -289,11 +344,13 @@ The input set data integrity packet has a type value of "PAR 3.0\0ISDI\0\0\0\0" 
 
 Table: Input Set Data Integrity Packet Body Contents
 Length (bytes)	Type	Description
-32	K12 hash	K12 hash of the K12 hashes for the input files
+?*16	K12 hash	The checksums of the Input File Data Integrity Packets, sorted by file index.
 
-The K12 hash in the packet is a hash of all the checksums in the Input File Data Integrity packets.  Those hashes appear in the order of their file indices.
+This packet contains the checksums of packets that describe the data in files.  The checksum of this packet acts as checksum on all data sent in the PAR 3.0 file.
 
+NOTE: The file index plays a role here.  If two files are duplicates of each other, the data contents will be exactly the same.  The file index will be the only thing different and it causes the duplicate files to have different checksums.
 
+For any Stream ID, there should be only 1 Input Set Data Integrity Packet or 1 Input Set Metadata Integrity Packet.  (The same packet may be repeated multiple times.)
 
 Recovery Data Packet
 
@@ -306,8 +363,9 @@ Length (bytes)	Type	Description
 16	K12 hash	The checksum from the Matrix Rows packet
 16	K12 hash 	The checksum from the Input Set Data Integrity packet
 8	unsigned int	The index of the row
-?*8	data	 	The recovery block data, plus 0 to 7 zero bytes of padding
+?*8	data	 	The recovery block data
 
+!!!! Does this require the number of columns in the matrix
 
 
 Input File Metadata Packet
@@ -318,7 +376,6 @@ The recovery data packet has a type value of "PAR 3.0\0IFMeta\0\0" (ASCII). The 
 
 Table: Input File Metadata Packet Body Contents
 Length (bytes)	Type	Description
-8      unsigned int 	File index
 8      unsigned int 	Filename length
 ?*8    string		Filename, plus 0 to 7 zero bytes of padding
 8      unsigned int 	Permission bits
@@ -328,19 +385,27 @@ Length (bytes)	Type	Description
 
 PAR 3.0 has rudimentary support for metadata.  The goal was to support most directory layouts for package distribution.  PAR 3.0 intentionally avoids requiring support for file ownership, to avoid any security issues.  For backups that contain all the file permission that their file system allows, users should use a file-system specific utility, like "tar".
 
-The 0th (least significant) bit of the permissions field is read permissions.  It is 1 if the user can read the file, 0 if not.
+The 0th and 1st (least significant) bits of the permissions field tell what kind of file it is.
 
-The 1th bit of the permissions field is write permissions.  It is 1 if the user can write the file, 0 if not.
+Table: Input File Metadata Packet Body Contents
+Value	File Type	Additional data
+0b00 	"normal" file	checksum of Input File Data Integrity packet
+0b01	directory 	<none>
+0b10	softlink	string containing name of file linked to 
+0b11 	<not used>	<N/A>
 
-The 2nd bit of the permissions field is execute permissions.  It is 1 if the user can run the file, 0 if not.
+A hardlink is encoded as two Input File Metadata Packets, each having file type "normal" and using the same checksum from Input File Data Integrity packet.  
 
-The 3rd bit of the permissions field is the directory indicator.  It is 1 if the file is a directory, 0 if not.
+The 3rd (least significant) bit of the permissions field is read permissions.  It is 1 if the user can read the file, 0 if not.
 
-The 4th bit of the permissions field is the hardlink indicator.  It is 1 if the file is a hardlink to another, 0 if not.  If the hardlink bit is set, the "additional data" field contains the File index of the file linked to.  The hardlink permissions must exactly match those of the file linked to.  (NOTE: Due to how File IDs are assigned, the hardlink must always have a higher File ID than the file linked to.)
+The 4th bit of the permissions field is write permissions.  It is 1 if the user can write the file, 0 if not.
 
-The 5th bit of the permissions field is the softlink indicator.  It is 1 if the file is a symbolic link to another file, 0 if not.  If the softlink bit is set, the "additional data" field contains the filename of the file linked to.
+The 5th bit of the permissions field is execute permissions.  It is 1 if the user can run the file, 0 if not.
+
+If the encoding client's filesystem does not support the metadata, the read, write and execute bits should be set to 1.  The create and last modification times should be set to the current time.  
 
 If the decoding client's filesystem does not support the metadata used inside the PAR 3.0 file, the client should do their best to approximate them and inform the user.  For example, the FAT filesystem has shorter filenames, no "execute" bit and low-resolution timestamps.  In this case, a client might force a shorter filename, ignore the execute bit, and set the timestamps to the closest value.  And inform the user that those changes were made.  
+
 
 
 Input Set Metadata Integrity Packet
@@ -351,9 +416,12 @@ The input set data integrity packet has a type value of "PAR 3.0\0ISMI\0\0\0\0" 
 
 Table: Input Set Metadata Integrity Packet Body Contents
 Length (bytes)	Type	Description
-32	K12 hash	K12 hash of hashes (see below).
+?*16   K12 hash		The checksums of Input File Metadata Integrity packet, sorted by filename.
 
-The hash is the hash from the contents of the Input Set Data Integrity Packet followed by the packet checksums for all Input File Metadata Packets in order of their File ID. 
+The checksum of this packet acts as checksum on all data and metadata sent in the PAR 3.0 file.
+
+
+For any Stream ID, there should be only 1 Input Set Data Integrity packet or 1 Input Set Metadata Integrity Packet.  (The same packet may be repeated multiple times.)
 
 
 Input File Hint Packet
@@ -367,15 +435,15 @@ Length (bytes)	Type	Description
 8      unsigned int 	File index
 8      unsigned int 	Filename length
 ?*8    string		Filename, plus 0 to 7 zero bytes of padding
-8	unsigned int	File size
+16	unsigned int	File size
 ?*48	{index in input file, index in single virtual file, length} array	mapping of input file to single virtual file.  (See below.)
-32	K12 hash	K12 hash of the first 16kibibytes of protected section of the file
+32	K12 hash	zero bytes OR K12 hash of the first 16kibibytes of protected section of the file 
 
-The filename length and filename should be the same as in the Input File Metadata Packet.
+The filename length and filename should be the same as in the Input File Metadata packet.  If a file has "hardlinks" and multiple Input File Metadata packets, ten use only one's name.
 
 The file size and mapping data should be the same as in the Input File Data Integrity Packet.
 
-The final hash is only on the first 16kibibytes of the protected data of the file.  The hash is used to find files that have been renamed.  The hash is only computed on the first 16kibibytes that is mapped to the single virtual file.  If less than 16kibibytes is mapped, then all of the data is hashes.  Like the hash in the Input File Data Integrity packet, any unmapped data is skipped.
+The final hash is only on the first 16kibibytes of the protected data of the file.  The hash is used to find files that have been renamed.  The hash is only computed on the first 16kibibytes that is mapped to the single virtual file.  If less than 16kibibytes is mapped, then all of the data is hashes.  Like the hash in the Input File Data Integrity packet, any unmapped data is skipped.  If the encoding client does not want to use this feature, the hash is set to all zeroes.  
 
 
 Use as a Streaming Protocol:
