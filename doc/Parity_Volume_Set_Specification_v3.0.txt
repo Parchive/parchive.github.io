@@ -162,7 +162,7 @@ The lengths of input files and locations in input files can be 8-byte integers o
 
 The block size and matrix indices are 8-bytes integers.  In order to protect files with more than 2^64 bytes, users must choose larger block sizes.  
 
-Par3 uses two hash functions.  The "rolling hash" is CRC-64-XZ  It is defined here:  https://tukaani.org/xz/xz-file-format.txt   WARNING: The algorithm is commonly confused with CRC-64/ECMA-182.   See https://reveng.sourceforge.io/crc-catalogue/17plus.htm   The rolling hash is used to identify input blocks that are not in their expected location.  This hash is only 64-bits long and may not uniquely identify a block.  
+Par3 uses two hash functions.  The "rolling hash" is CRC-64-ISO.  The rolling hash is used to identify input blocks that are not in their expected location.  This hash is only 64-bits long and may not uniquely identify a block.  
 
 The "fingerprint hash" is the lower 16-bytes of a Blake3 hash.  It is used to uniquely identify blocks.  If two blocks have the same fingerprint hash, they are assumed to have identical contents.  
 
@@ -312,7 +312,7 @@ Length (bytes)	Type	Description
 
 The index for the first input block for which there is a checksum.  
 
-The tuples contain a rolling hash (CRC-64-XZ) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the block index plus 1.  Etc.
+The tuples contain a rolling hash (CRC-64-ISO) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the block index plus 1.  Etc.
 
 Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the correct block (because the rolling hash is less trustworthy).  There is more about the rolling hash in the section "Rolling Hash" below.
 
@@ -445,7 +445,7 @@ The Matrix packet checksum acts the same as with the Recovery Data packet.  It i
 
 The index is the recovery block index for the first block for which there is a pair of hashes.
 
-The tuples contain a rolling hash (CRC-64-XZ) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of recovery blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the recovery block index plus 1.  Etc.
+The tuples contain a rolling hash (CRC-64-ISO) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of recovery blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the recovery block index plus 1.  Etc.
 
 Note: The rolling hash is used to locate a block when recovery data might have shifted location.  The fingerprint hash is used to confirm that the recovery block is the correct block (because the rolling hash is less trustworthy).  There is more about the rolling hash in the section "Rolling Hash" below.
 
