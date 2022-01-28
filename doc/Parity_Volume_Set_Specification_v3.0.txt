@@ -12,6 +12,10 @@ Updated December 6th, 2021  (Refining)
 
 License.  --- copyright, "service mark", derivatives
 
+* Change 16kB hash to a rolling hash
+? "tail" rolling hash is only for first 40-bytes and, if less than 40-bytes, use "inline data"
+* add NTFS-sized attributes and timestamps to FAT/exFAT packet
+
 ? fingerprint for entire file?
 ? Drop owner/groupid 
 ? special Galois Field that represents XOR ?
@@ -19,10 +23,14 @@ License.  --- copyright, "service mark", derivatives
 ? allow chunks to have a checksum and still not be mapped?  This could be achieved by reserving block index 2^64-1 for the "unmapped block".
 ? order of packet hashes inside Directory & Root packets
 ? what characters should not be allowed in filenames?
-? what size rolling hash? 
-? which rolling hash?
+? drop rolling hash for "tails"?
 ? what size fingerprint hash?
 ? which fingerprint hash?
+    Blake3: 37k hits, 7k hits on Google, 2k
+    KangarooTwelve: 5400 hits, 2400 hits, 84
+? mention "gzip --rsyncable"  (or parallel "pigz --rsyncable) ?
+? allow zlib compression for blocks?  ... no, better to compress first
+
 
 /\ /\ /\ TODO /\ /\ /\
 
@@ -177,9 +185,11 @@ The lengths of input files and locations in input files can be 8-byte integers o
 
 The block size and matrix indices are 8-bytes integers.  In order to protect files with more than 2^64 bytes, users must choose larger block sizes.  
 
-Par3 uses two hash functions.  The "rolling hash" is CRC32C.  It is used to identify input blocks that are not in their expected location.  This hash is only 32-bits long and may not uniquely identify a block.  
+Par3 uses two hash functions.  The "rolling hash" is CRC-64-XZ  It is defined here:  https://tukaani.org/xz/xz-file-format.txt   WARNING: The algorithm is commonly confused with CRC-64/ECMA-182.   See https://reveng.sourceforge.io/crc-catalogue/17plus.htm   The rolling hash is used to identify input blocks that are not in their expected location.  This hash is only 64-bits long and may not uniquely identify a block.  
 
-The "fingerprint hash" is KangarooTwelve hash, a.k.a. K12 hash.  It is used to uniquely identify blocks.  If two blocks have the same fingerprint hash, they are assumed to have identical contents.  
+The "fingerprint hash" is the lower 16-bytes of a Blake3 hash.  It is used to uniquely identify blocks.  If two blocks have the same fingerprint hash, they are assumed to have identical contents.  
+
+TODO: Make sure "lower 16-bytes bytes" above is specific.
 
 Padding between packets, if done at all, is specified to be zero bytes.
 
@@ -211,7 +221,7 @@ A Par3 file consists of a sequence of "packets".  A packet has a fixed-sized hea
 Table: Packet Header
 Length (bytes)	Type	Description
 8	byte[8]	Magic sequence. Used to quickly identify location of packets. Value = {'P', 'A', 'R', '3', '\0', 'P', 'K', 'T'} (ASCII)
-16	fingerprint hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts after this field and ends at last byte of body. Does not include the magic sequence or this field.  
+16	fingerprint hash	16-bytes of Blake3 hash of packet. Used as a checksum for the packet. Calculation starts after this field and ends at last byte of body. Does not include the magic sequence or this field.  
 8	unsigned int	Length of the entire packet.  (NB: Includes length of header.)
 8	InputSetID       All packets for the same input set have the same InputSetID. (See below for how it is calculated.)
 8	byte[8]	  Packet type. Can be any value. All beginning "PAR " (ASCII) are reserved for specification-defined packets.  Application-specific packets must have an application-specific 4-byte prefix.  
@@ -289,7 +299,7 @@ The Galois field's generator is written in little-endian format without its lead
 
 There is only one Start packet for an InputSetID.  There can be multiple identical copies of this packet in the file.  (This is true for all packets.)
 
-Start packets are used to generate the InputSetID, which is included in the header of every packet.  The InputSetID is the first 8 bytes of the K12 hash of the body of the Start packet.  To be clear, the hash for the InputSetID does not include the header of the packet.  (Including the header is actually impossible, since the hash would have to contain a hash of itself.)  
+Start packets are used to generate the InputSetID, which is included in the header of every packet.  The InputSetID is the first 8 bytes of the Blake hash of the body of the Start packet.  To be clear, the hash for the InputSetID does not include the header of the packet.  (Including the header is actually impossible, since the hash would have to contain a hash of itself.)  
 
 TODO: Make sure "first 8 bytes" above is specific.
 
@@ -321,11 +331,11 @@ The External Data packet has a type value of "PAR EXT\0" (ASCII). The packet's b
 Table: External Data Packet Body Contents
 Length (bytes)	Type	Description
 8	unsigned int	Index of the first input block
-16*?	{rolling hash, 12-byte fingerprint hash} A rolling checksum and fingerprint for each input block
+20*?	{rolling hash, 16-byte fingerprint hash} A rolling checksum and fingerprint for each input block
 
 The index for the first input block for which there is a checksum.  
 
-The tuples contain a rolling hash (CRC32) and the lower 12 bytes of the fingerprint hash (K12 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the following block.  Etc.
+The tuples contain a rolling hash (CRC-64-XZ) and fingerprint hash (16-byte Blake3 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block with the index written in the packet.  The second pair of checksums is for the following block.  Etc.
 
 Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the right block (because the rolling hash is less trustworthy).  There is more about the rolling hash in the section "Rolling Hash" below.
 
@@ -460,7 +470,7 @@ Length (bytes)	Type	Description
 16     fingerprint hash	hash of the first 16kB of the file
 1      unsigned int	number of options (a.k.a. permissions)
 16*?   fingerprint hashes  checksums of packets for options
-?*?    {8-byte unsigned int, fingerprint hash or zeros, [OPTIONAL: 8-byte unsigned int], [OPTIONAL: rolling hash, fingerprint hash, 8-byte unsigned int; 8-byte unsigned int]}	chuck length, hash, [first block index], [tail hash, tail hash, tail block index, offset in block]
+?*?    {8-byte unsigned int, 16-byte fingerprint hash or zeros, [OPTIONAL: 8-byte unsigned int], [OPTIONAL: rolling hash, 16-byte fingerprint hash, 8-byte unsigned int; 8-byte unsigned int]}	chuck length, hash, [first block index], [tail hash, tail hash, tail block index, offset in block]
 
 The first field holds the length of the filename in bytes.  (FYI: 255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in up to 4kB of storage.)
 
@@ -708,7 +718,7 @@ Bit index	  Attribute
 1   Hidden
 2   System
 3   not used (was "Volume")
-4   Directory
+4   not used (is "Directory", but that data is stored elsewhere)
 5   Archive
 6   not used (was "Device")
 7   not used ("Reserved")
@@ -951,6 +961,51 @@ License text
 
 /\ /\ /\ TODO /\ /\ /\
 
+
+Appendix C:
+
+Example of a deduplication algorithm.
+
+There is a single-threaded algorithm that uses a window of size 2*blocksize-1 to do deduplication on new files.  The client must store the rolling hashes and fingerprint hashes of all existing blocks.  The client must also store a "preliminary chunk", which will be the next chunk but isn't final yet.  
+
+The algorithm is best explained by an example.  Assume the blocksize is 6 bytes and the client has already processed as file with contents "aaabbbcccdddeeefffggghhhiiijjj" as a single chunk.  The blocks would be: 0: "aaabbb", 1:"cccddd", 2:"eeefff", 3:"ggghhh", 4:"iiijjj".
+
+The algorithm passes its window over a new file with contents "aaabbbcccdddeee000111222333fffggghhhiiijjj", where "000111222333" has be inserted into the middle of the old file.  Since the blocksize is 6, the window size is 2*6-1 = 11 bytes. When we start to slide the 11-byte window over a file, its contents are:
+
+W=[aaabbbcccdd]
+The client scans the window using the rolling hashes of all the existing blocks (0 to 4). For any matches, the confirms that it is the existing block using the existing fingerprint hashes. When the client does that on this window, if finds that "aaabbb" matches block 0. So that becomes the start of a preliminary chunk {length=6+?, firstblockindex=0, tail?} and the client moves the window beyond that block.
+
+W=[cccdddeee00]
+The client scans the new window with the existing hashes. The first complete block it finds is "cccddd". That is a continuation of the existing preliminary chunk, so it updates the preliminary chunk to {length=12+?, firstblockindex=0, tail?} and moves the window.
+
+W=[eee00011122]
+The client scans this window with the existing hashes. It finds no matches. There is a preliminary chunk that it has been working on, so the client checks if it has a tail. The last block in the preliminary chunk was block 1, so the client checks if the start of the window matches the start of the next block, which is block 2. This requires loading block 2 back into memory, which is expensive, but is necessary to find the tail. When it compares the start of the window to the start of block 2, it finds that "eee" is common to both. The client declares that that is the tail of the preliminary chunk. The client finalizes the chunk as {length=15, firstblockindex=0, tailblockindex=2, tailoffset=0}. The client moves the window past the tail.
+
+W=[00011122233]
+The client scans and finds no matches with existing blocks. It has no preliminary chunk, so it start a new preliminary chunk with a new input block. {length=6+?, firstlblockindex=5, tail?} The client stores the rolling hash and fingerprint of the new block. The client moves the window past the new block.
+
+W=[222333fffgg]
+The client scans and finds no match. The client declares this a new block. It adds it to the end of the preliminary chuck and gets {length=12+?, firstblockindex=5, tail?}. It moves the window.
+
+W=[fffggghhhii]
+The client scans and finds an existing block, block 3, at offset 3. That existing block will become part of a new chunk, so the client has to finalize the existing preliminary chunk. The question is, what does the client do with the "fff"? Before writing "fff" into a new block, the client can recognize that "ggghhh" is in block 3 and that "fff" might be present at the end of block 2. So, it loads block 2 into memory and compares the end of block 2 to "fff". When it finds a match, the client finalizes the existing preliminary chunk as {length=15, firstblockindex=5, tailblockindex=2, tailoffset=3}. (If the end of block 2 did not match "fff", the tail would have been written into the first 3 bytes of block 7 and the finalized chunk would be {length=15, firstblockindex=5, tailblockindex=7, tailloffset=0}.) The client can now start a new preliminary chunk with the block it found: {length=6+?, firstblockindex=3, tail?}. It moves the window after the found block.
+
+W=[iiijjj]
+The scan says this is block 4. It is a continuation of the existing preliminary block. That becomes {length=12+?, firstblockindex=3, tail?}. The client moves the window.
+
+W=[]
+This is the end of file. The client finalizes the preliminary block as {length=6, firstblockindex=3}
+
+So the chunks are:
+{length=15, firstblockindex=0, tailblockindex=2, tailoffset=0}
+{length=15, firstblockindex=5, tailblockindex=2, tailoffset=3}
+{length=6, firstblockindex=3}
+
+The above algorithm is single-threaded and requires reloading some blocks into memory after they've been processed.  However, I think that reloading has to happen with any algorithm. The good news is that reloading only happens after an existing block has been identified, so if the process is slow, it is because deduplication is actually happening. That is, the user gets something for the delay.
+
+The above algorithm would not work in parallel.  A similiar parallel algorithm requires three passes over each file.  In the first pass, for every file, the client computes the rolling hash and fingerprint hash at blocksize offsets. (That is, as if the files were each a single chunk and chopped into blocksize pieces.) The second pass would be similar to the single-threaded algorithm: running a rolling hash over every file and identify the matches to the blocks found in the first pass. The second pass would also identify the "tails" before and after the matching blocks. After the second pass, the client would run a fast single-threaded calculation where it decided what data would be put into which input blocks. After that, there would need to be a third pass, where the recovery data was calculated using the input blocks and their indexes.
+
+NOTE: Technically, the calculation of "deciding what data would be put into which input blocks" is an optimization problem.  Finding the solution that uses the absolute minimum number of input block is probably NP-Complete.  That is, the best known algorithms are all really slow in the worst case.  But there are fast algorithms that get very good solutions, even if they cannot be guaranteed to be optimal in every case.  
 
 
 \/ \/ \/ TO REMOVE \/ \/ \/
