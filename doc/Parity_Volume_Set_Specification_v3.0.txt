@@ -686,6 +686,14 @@ FAT Root Packet
 /\ /\ /\ TODO /\ /\ /\
 
 
+\/ \/ \/ TODO \/ \/ \/
+
+Can you mix-and-match metadata?  If someone calls Par with files from my EXT4 mounted filesystem inside a Windows VM, what should happen?
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+
 Security:
 
 Security is a major issue for PAR clients.  Users will probably execute the client on untrusted files, downloaded from strangers.  We do not want PAR to be a means for hackers to attack a system.
@@ -703,6 +711,13 @@ Avoiding file system attacks takes care.  Especially if the client is designed t
 One part of preventing these attacks is confirming that filenames are valid filenames.  A filename should not contain a '\0' in the middle of it.  It should not be a path (e.g., not contain "/" on a UNIX system or "\" on a Windows system.  MacOS also accepts ":".).   The filename should not violate conventions (e.g., on UNIX, be named "." or "..".).  It should not reference a networked file name or device name.  (E.g., Windows does not allow "COM0", "LPT0", and many more.)
 
 Slightly off the topic of security, this is probably a good place to recommended that users be warned when they create PAR files with names that are incompatible with Windows, Mac, or Linux systems. That is, file or directory names that are more than 255 characters long, start with a period (.) or a dash (-), or contain one of these characters: < > : " ' ` ? * & | [ ] \ ; or newline (\n).
+
+\/ \/ \/ TODO \/ \/ \/
+
+Should we Include #, !, and (windows) %
+
+/\ /\ /\ TODO /\ /\ /\
+
 
 Another part of preventing file system attacks is to validate paths.  For paths, major attacks will come by referencing a file using an absolute path ("/etc/passwd" or "C:\Windows\System32\Config") or escaping a subdirectory ("../../etc/passwd" or "..\..\Windows\System32\Config").   (NOTE: On Windows, an absolute path can start "C:\" or "\" or "\\" for example. For UNIX, that means one starting with "/" or "//" or "~". For Mac, one can also start with ":".  There may be other formats!)  It is REQUIRED that the client get user approval before using an absolute path or using a feature like ".." in a path.   For a GUI, this approval can come via a dialog box saying something like "This PAR file is writing to an absolute path.  This is dangerous, because it can overwrite system files like your password file.  Do you want to allow this?"  For a command line tool, the approval can come via a command line option.  The default should always be to not allow this behavior.
 
