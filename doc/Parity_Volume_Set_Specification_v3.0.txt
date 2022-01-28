@@ -279,6 +279,14 @@ The tuples contain a rolling hash (CRC32) and the lower 12 bytes of the fingerpr
 Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the right block (because the rolling hash is less trustworthy).
 
 
+\/ \/ \/ TODO \/ \/ \/
+
+Add comment on how to avoid slowdown when the rolling hash matches repeated data, but the fingerprint hash does not.  The client will make almost no progress, going 1 byte at a time.
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+
 Segment End Packet
 
 This packet contains a checksum for the stream at a given point.  This packet is sent when the sender "flush"es the stream and at the end of the stream.
@@ -346,6 +354,12 @@ https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/carry-
 
 Note: The ARM processor has an instruction extension called "NEON" with a VMULL instruction.  VMULL.P8 will do eight 8-bit Galois field multiplications at once.
 
+
+\/ \/ \/ TODO \/ \/ \/
+
+If GF length = 0, then it's all XOR.  But what does that do to Matrix packets?
+
+/\ /\ /\ TODO /\ /\ /\
 
 
 Matrix Packets
@@ -772,9 +786,9 @@ Conventions:
 
 The above is the official spec.  It is what all clients must implement.  This section discusses conventions, which are what most clients will want to do, so that users have a common expectation of how a PAR client behaves.
 
-PAR 3.0 files should always end in ".par3". For example, "file.par3". If a file contains recovery blocks, the ".par3" should be preceded by ".volXX-YY" where XX and YY represent a range of recovery blocks. For example, "file.vol20-29.par3" contains 10 recovery blocks, the 21th through the 30th. More than 2 digits should be used if necessary. Any numbers that contain fewer digits than the largest exponent should be preceded by zeros so that all filenames have the same length. For example, "file.vol075-149.par2".  Numbers should start at 0 and go upwards.
+PAR 3.0 files should always end in ".par3". For example, "file.par3". If a file contains recovery blocks, the ".par3" should be preceded by ".volXX+YY" where XX is the number of previous recovery blocks and YY represent the number of recovery blocks in this file. For example, "file.vol20+10.par3" means this starts with the 20th recovery block and contains 10 recovery blocks.  More than 2 digits should be used if necessary. Any numbers that contain fewer digits than the largest exponent should be preceded by zeros so that all filenames have the same length. For example, "file.vol075+10.par2".  Numbers should start at 0 and go upwards.
 
-If a PAR 3.0 file contains input blocks, the ".par3" should be preceeded by ".partXX-YY".  The XX and YY should be numbered in the same fashion as the recovery blocks.
+If a PAR 3.0 file contains input blocks, the ".par3" should be preceeded by ".partXX+YY", where XX is the number of previous input blocks and YY is the number in this file.  
 
 If multiple PAR files are generated, they may either contain a constant number of blocks per file (e.g. 20, 20, 20, ...) or exponentially increasing number of blocks (e.g., 1, 2, 4, 8, ...). Note that to store 1023 blocks takes 52 files if each has 20 blocks, but takes only 10 files with the exponential pattern.
 
