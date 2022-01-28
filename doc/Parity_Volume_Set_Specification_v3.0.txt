@@ -336,36 +336,23 @@ The mapping consists of triples, each representing a region mapped from the inpu
 The locations in the single virtual file do not have to be in order and they can overlap.  This allows deduplication between files and even inside the same file.  For example, if an input file was all zeros, it could be divided into many regions that all mapped to the same place on the single virtual file.
 
 
-Input Set Data Integrity Packet
+Input Subset Data Integrity Packet
 
-This packet contains a single checksum for all input files that contain protected data.  That checksum can also act as a checksum for the (used portions of the) single virtual file.
+This packet type is used to group input files that contain protected data.  It works by using a checksum-of-checksums.  Each file has a Input File Data Integrity packet.  The checksum of those packets are put into the Input Subset Data Integrity packet and the checksum of this packet is used to identify the group of files.  
 
-The input set data integrity packet has a type value of "PAR 3.0\0ISDI\0\0\0\0" (ASCII). The packet's body contains the following:
+These packets can form a hierarchy.  The top checksum is placed in the Root Packet.
 
-Table: Input Set Data Integrity Packet Body Contents
+The input subset data integrity packet has a type value of "PAR 3.0\0ISDI\0\0\0\0" (ASCII). The packet's body contains the following:
+
+Table: Input Subset Data Integrity Packet Body Contents
 Length (bytes)	Type	Description
-?*16	K12 hash	The checksums of the Input File Data Integrity Packets, sorted by file index.
-
-This packet contains the checksums of packets that describe the data in files.  The checksum of this packet acts as checksum on all data sent in the PAR 3.0 file.
+?*16	K12 hash	The checksums of the Input File Data Integrity Packets OR Input Subset Data Integrity Packets.
 
 NOTE: The file index plays a role here.  If two files are duplicates of each other, the data contents will be exactly the same.  The file index will be the only thing different and it causes the duplicate files to have different checksums.
 
-For any Stream ID, there should be only 1 Input Set Data Integrity Packet or 1 Input Set Metadata Integrity Packet.  (The same packet may be repeated multiple times.)
+NOTE: The hierarchy of these packets does not have to match the directory hierarchy.  It can, but checksums could also be packed equally into each packet.
 
-Recovery Data Packet
-
-This packet contains a recovery block.
-
-The recovery data packet has a type value of "PAR 3.0\0Recovery" (ASCII). The packet's body contains the following:
-
-Table: Recovery Data Packet Body Contents
-Length (bytes)	Type	Description
-16	K12 hash	The checksum from the Matrix Rows packet
-16	K12 hash 	The checksum from the Input Set Data Integrity packet
-8	unsigned int	The index of the row
-?*8	data	 	The recovery block data
-
-!!!! Does this require the number of columns in the matrix
+If there is no parent stream, it is recommended that the files appear in file index order.  It is also recommended that the hierarchy of these packets resemble a tree, not a linked list, so that files with a parent stream are smaller.  
 
 
 Input File Metadata Packet
@@ -407,21 +394,49 @@ If the encoding client's filesystem does not support the metadata, the read, wri
 If the decoding client's filesystem does not support the metadata used inside the PAR 3.0 file, the client should do their best to approximate them and inform the user.  For example, the FAT filesystem has shorter filenames, no "execute" bit and low-resolution timestamps.  In this case, a client might force a shorter filename, ignore the execute bit, and set the timestamps to the closest value.  And inform the user that those changes were made.  
 
 
+Input Subset Metadata Integrity Packet
 
-Input Set Metadata Integrity Packet
+This packet type is used to group input files and their metadata.  It works by using a checksum-of-checksums.  Each file has a Input File Metadata Integrity packet.  The checksum of those packets are put into the Input Subset Metadata Integrity packet and the checksum of this packet is used to identify the group of files.  
 
-This packet holds the checksums for all data and metadata.  It is responsible for the integrity of everything sent.
+These packets can form a hierarchy.  The top checksum is placed in the Root Packet.
 
-The input set data integrity packet has a type value of "PAR 3.0\0ISMI\0\0\0\0" (ASCII). The packet's body contains the following:
+The input subset data integrity packet has a type value of "PAR 3.0\0ISMI\0\0\0\0" (ASCII). The packet's body contains the following:
 
 Table: Input Set Metadata Integrity Packet Body Contents
 Length (bytes)	Type	Description
-?*16   K12 hash		The checksums of Input File Metadata Integrity packet, sorted by filename.
+?*16   K12 hash		The checksums of Input File Metadata Integrity packet OR Input Subset Metadata Integrity packets.
 
-The checksum of this packet acts as checksum on all data and metadata sent in the PAR 3.0 file.
+If there is no parent stream, it is recommended that the files appear in file name order.  It is also recommended that the hierarchy of these packets resemble a tree, not a linked list, so that files with a parent stream are smaller.  
 
 
-For any Stream ID, there should be only 1 Input Set Data Integrity packet or 1 Input Set Metadata Integrity Packet.  (The same packet may be repeated multiple times.)
+Root Packet
+
+This packet contains the checksum at the root of the hierarchy of Input Subset Data Integrity or Input Subset Metadata Integrity packets.  It represents the group of files in the stream.
+
+The root packet has a type value of "PAR 3.0\0Root\0\0\0\0" (ASCII). The packet's body contains the following:
+
+Table: Root Packet Body Contents
+Length (bytes)	Type	Description
+16	K12 hash	The checksum of a Input Subset Data Integrity or Input Subset Metadata Integrity packets.
+
+A stream can only contain one Root packet, although it may contain multiple copies of the same packet.  
+
+
+
+Recovery Data Packet
+
+This packet contains a recovery block.
+
+The recovery data packet has a type value of "PAR 3.0\0Recovery" (ASCII). The packet's body contains the following:
+
+Table: Recovery Data Packet Body Contents
+Length (bytes)	Type	Description
+16	K12 hash	The checksum from the Matrix Rows packet
+16	K12 hash 	The checksum from the Input Set Data Integrity packet
+8	unsigned int	The index of the row
+?*8	data	 	The recovery block data
+
+!!!! Does this require the number of columns in the matrix
 
 
 Input File Hint Packet
