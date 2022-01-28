@@ -17,43 +17,58 @@ Expanded goals from Par2:
 
 Use cases:
 
-Usenet:
+File distribution, with separate Par3 file:
 
 User wants to send a set of files on Usenet.  They use a Par3 client to generate redundant data in a separate file.  They send the input files and redundant file over Usenet.
 
 The receiver downloads files from Usenet.  Uses Par3 client to verify files and, if any are damaged, recover the damaged files.  
 
-Simple backup:
 
-User wants to backup files.  They use an archiver, like "tar" to create a single file.  They run a Par3 client to create redundant data file or create a new file with both original and redundant data in it.  The backup data and redundancy data is then stored.
-
-If the user sees a problem, they use a Par3 client to verify the backup and, if necessary, repair it.  They then use the archiver program to restore the original files.
-
-Incremental backup:
-
-Same as above, but the user does an incremental backup using an archiver like "tar".  They run a Par3 file to create redundant data for the incremental and original backup.
-
-If the user sees a problem, they use a Par3 client to read the original backup, the incremental backup, and Par3 files generated with each.  The Par3 client verifies the files and, if necessary, repairs them.  The user then uses the archive program to restore the original files.
-
-No-backup redundancy:
-
-User wants to protect files from damage/accidental deletion.  They use a Par3 client to generate redundant data in a file.
-
-If an important file is lost, the Par3 client reads the redundant data file and any existing original files and attempts to recover the important file.  If many other files have changed, recovery may not be possible.
-
-File distribution:
+File distribution, with data inside Par3 file:
 
 User wants to distribute a set of files together and the package might go out over various transport protocols (website, usenet, etc.).  They use a program like "tar" or "zip" to group the files.  They then use a Par3 client to add redundancy to the single file.
 
 The receiver downloads the file.  They try the archive program to unpack the files.  If the user detects a problem, they can use a Par3 client to repair the file before retrying the archive program.
 
+
+Backup, with separate Par3 file:
+
+User wants to backup files.  They use an archiver, like "tar" to create one or more archive files.  They run a Par3 client to create redundant data in a separate file(s).  The archive file(s) and Par3 file(s) are stored.
+
+If the user sees a problem, they can restore from the archive file(s).  If the archive file(s) are damaged, they use a Par3 client to repair the original archive file(s).  They then use the archiver program to restore the original files.
+
+
+Backup, with data inside Par3 file:
+
+The user runs an archiver to generate archive file(s).  The Par3 client is used to group the archiver output, calculate redundant data, and split the data into multiple output files.  Those output files are then stored.
+
+If the user sees a problem, they run the Par3 client, which outputs the original archive files.  They then run the archiver to restore the backed up files.
+
+
+Incremental backup:
+
+After having done a full backup, with Par3 data in a separate file, the user desires to do an incremental backup.  They use the archive program to generate an archive file containing the incremental changes.  The user then runs a Par3 client on the archive file(s) of the full backup and the archive file(s) of the incremental backup.  The redundant data is calculated and written to a separate file.
+
+If the user sees a problem, they use a Par3 client to verify and, optionally, repair the full archive file and the incremental archive file.  They then run the archiver to retore the original files.
+
+
+No-backup redundancy:
+
+User wants to protect important file(s) from damage/accidental deletion.  They use a Par3 client to generate redundant data in a separate file.
+
+If an important file is lost/damaged, the Par3 client reads the redundant data file and any existing original files and attempts to recover the important file.  If many other files have changed, recovery may not be possible.
+
+
 File streaming:
 
-User wants to transmit file(s) over a one-way connection, with forward error correction.  For example, over UDP or using multicast UDP.  The user include a Par3 library in their program.  The file is converted into Par3 packets, which are sent to the receiver.
+User wants to transmit file(s) over a one-way connection, with forward error correction.  For example, over UDP or using multicast UDP.  The user include a Par3 library in their program.  The file is packaged into Par3 packets, which are sent to the receiver.
 
-The receiving program also includes a Par3 library.  After receiving UDP packets, they are passed to the library, which writes the files.  Then the name of the file is passed back to the receiving program.
+The receiving program also includes a Par3 library.  After receiving UDP packets, they are passed to the library, which writes the files.  When a complete file is received, the receiving program is notified and passed the data.  
 
-NOTE: This use case is file-based.  I don't think we can support stream-based operation, because Par3 clients do recovery on a block-by-block basis.  A user could write the program so that, instead of flushing the stream, closed the current file and sent it to the client and then starting a new file.
+NOTE: This use case is file-based.  I don't think we can support stream-based operation, because Par3 clients do recovery on fixed block size.  A user could write the program so that, instead of flushing the stream, it closes the current file and sends it to the client and then starts a new file.  (I actually think that's a better semantic than streaming.)
+
+
+
 
 
 
