@@ -461,14 +461,14 @@ The File packet has a type value of "PAR FIL\0" (ASCII). The packet's body conta
 
 Table: File Packet Body Contents
 Length (bytes)	Type	Description
-1      unsigned int	length of filename in bytes
+2      unsigned int	length of filename in bytes
 ?      UTF-8 string    filename
 8      rolling hash	hash of the first 16kB of the file
 1      unsigned int	number of options (a.k.a. permissions)
 16*?   fingerprint hashes  checksums of packets for options
 ?*?    chunk descriptions  see below.
 
-The first field holds the length of the filename in bytes.  (FYI: 255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in up to 4kB of storage.)
+The first field holds the length of the filename in bytes.  (FYI: 255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in up to 4kB of storage.  Yutaka-Sawada claimed Windows Explorer allowed him to name files with 239 Japanese Unicode codepoints, each of 3-bytes in size, which is 717 bytes.)
 
 The filename is a UTF-8 string.  It is not NUL-terminated.
 
@@ -547,13 +547,13 @@ The Directory packet has a type value of "PAR DIR\0" (ASCII). The packet's body 
 
 Table: Directory Packet Body Contents
 Length (bytes)	Type	Description
-1      unsigned int    length of string in bytes
+2      unsigned int    length of string in bytes
 ?      UTF-8 string    name of directory
 4      unsigned int	number of options (a.k.a. permissions and links)
 16*?   fingerprint hash  checksums of packets for options
 ?*16	fingerprint hash       checksums of File and Directory packets
 
-The first byte is the length of the directory's name in bytes.  (255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in up to 4kB of storage.)
+The first byte is the length of the directory's name in bytes.  
 
 The directory's name is a UTF-8 string.  It is not NUL-terminated. 
 
@@ -630,9 +630,9 @@ The Link packet has a type value of "PAR LNK\0" (ASCII). The packet's body conta
 Table: Link Packet Body Contents
 Length (bytes)	Type	Description
 1      unsigned int	attributes
-1      unsigned int    length of name in bytes
+2      unsigned int    length of name in bytes
 ?      UTF-8 string    name of symbolic link or hard link
-2      unsigned int    length of path in bytes
+4      unsigned int    length of path in bytes
 ?      {UTF-8 string}   path where NUL is the separator character
 1      unsigned int	number of options (a.k.a. permissions)
 16*?   fingerprint hashes  checksums of packets for options
@@ -641,7 +641,7 @@ The attributes is a bit field.  At the moment, only the least significant bit is
 
 The link's name is encoded as the length of the link's name in bytes and the UTF-8 string containing the name.
 
-Next are the length of the path in bytes and UTF-8 strings containing the path.  The path separator is the NUL character, the byte 0.  (In C, C++, and Java, it is written '\0'.)  If a path is an absolute path, the first character is NUL.  There is no NUL character at the end of the string.  Thus, a UNIX path "/usr/bin/bash" is encoded "\0usr\0bin\0bash", using the C convention of "\0" for the NUL character.  The path "src/foo.txt" would be encoded "src\0foo.txt".  (The previous strings do not follow the C convention of an implicit NUL at the end of the string.  There is no NUL at the end of the path.)  If the link is to a file in the input set, the names need to exactly match the names in the Directory and File packets.
+Next are the length of the path in bytes and UTF-8 strings containing the path.  The path separator is the NUL character, the byte 0.  (In C, C++, and Java, it is written '\0'.)  If a path is an absolute path, the first character is NUL.  There is no NUL character at the end of the string.  Thus, a UNIX path "/usr/bin/bash" is encoded "\0usr\0bin\0bash", using the C convention of "\0" for the NUL character.  The path "src/foo.txt" would be encoded "src\0foo.txt".  (The previous strings do not follow the C convention of an implicit NUL at the end of the string.  There is no NUL at the end of the path.)  If the link is to a file in the input set, the names need to exactly match the names in the Directory and File packets.  (NOTE: Yutaka-Sawada claimed "Windows actually supports 32767 UCS-2 characters (65534 bytes) in paths via UNC naming.")
 
 The final two fields hold the number of options and the checksums of the packets holding those options.  The number of options is a 1-byte value, like the File packet.  For a Link packet, the options are UNIX Permissions packets and FAT Permission packets.  There can be at most one of each type.   Future versions of Parchive may include more option packets (e.g., NTFS permissions, etc.).  Clients can add their own custom packet types that can appear as Link packet options.  If the decoding client cannot find a packet with that checksum or does not recognize an option packet, the client can still recover the link.  Clients SHOULD warn the user if a packet with a particular checksum could not be found or if an option packet's type is not recognized.
 
