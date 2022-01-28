@@ -1,4 +1,4 @@
-[DRAFT]  Parity Volume Set Specificiation 3.0 
+[UNFINISHED DRAFT]  Parity Volume Set Specificiation 3.0 
 
 Michael Nahas
 
@@ -25,6 +25,11 @@ In the streaming use case, the "input stream" is any stream of 8-bit bytes.  The
 The two use cases are not that different.  PAR files just contain one or more PAR streams.  (Note: A stream can be contained by multiple PAR files.)  The only difference is that the file-based use case involves the additional steps of storing the list of files and mapping their contents onto a PAR stream.  
 
 
+License:
+
+This document is covered by TODO license.  The full text of the license is in Appendix A. 
+
+
 Design Goals:
 
 PAR 3.0's goal is to provide a complete solution for the bottom two layers of archiving: redundancy and splitting.  (Splitting is the breaking of a single archive into multiple files that can be stored on separate disks or multiple packets that can be transmitted.)  Other layers of archiving --- like compression, encryption, and storing metadata --- may be better served by other programs (zip/gzip/7zip, pgp/gpg, tar, etc.)  PAR 3.0 does provide minimal support for some of these layers, for ease and backwards compatibility.
@@ -34,15 +39,16 @@ PAR 3.0 does not provide support for encryption, because it is tricky to do well
 Major differences from PAR 2.0 are:
 * support streaming.
 * support files that work both as a PAR 3.0 file and another type.  For example, putting recovery data inside a ZIP, ISO 9600, or other file.
-* support incremental backups
 * support any Galois Field that is a multiple of 2^8
 * support any linear code (Reed-Solomon, LDPC, random sparse martix, etc.)
 * support empty directories
-* support file permissions, hard links, symbolic links, etc.
-* support for more than 2^16 files
 * support for more than 2^16 blocks
+* support for more than 2^16 files
 * support UTF-8 (which was added to Par 2 after version 2.0)
+* support incremental backups
+* support file permissions, hard links, symbolic links, etc.
 * replace MD5 hash (it is both slow and less secure)
+* drops hash of first 16kb that was used to identify files
 
 Part of "support any linear code" is to fix the major bug in PAR 2.0.  PAR 2.0 did not do Reed-Solomon encoding as it promised.  There was a major mistake in the paper that PAR 2.0 relied on.  The problem manifested as a bug in PAR 1.0 and, while PAR 2.0 reduced its occurance, it did not fix the problem.  PAR 2.0 did not use an always invertible matrix; it essentially used a random matrix, which (luckily) is invertible with high probability.  PAR 3.0 fixes that bug.
 
@@ -55,11 +61,11 @@ The Math of Redundancy
 
 The major feature of PAR is to support redundant data.  PAR uses Linear Algebra to generate the redundant data and, after damage, to recover the original input data.  To understand how it works, you need to be familiar with vectors, matrices, etc.
 
-The calculation of redundant data starts with the input data being packaged into a set of vectors.  Those vectors are multiplied by the "code matrix" to generate vectors of redundant data.  Thus, the code matrix "C" times the input vector "i" generates a redundant vector "r".
+The calculation of redundant data starts with the input data being packaged into a set of vectors.  Those vectors are multiplied by the "code matrix" to generate vectors of redundant data.  Thus, the redundant data vector "r" is equal to the code matrix "C" times the input data vector "i": 
 
 r = Ci
 
-Recovery is accomplished by first identifying the good input data and good redundant data.  Good data is data that arrived intact; bad data was lost or damaged.  We can then permute the elements of each vector to partition them into "good" ones and "bad" ones.  To keep the equation, we also need to permute the rows and columns of the code matrix to match each vector.
+Assuming that some data is damaged in transmission or storage, the first step in recovery is identifying the good input data and good redundant data.  Good data is data that arrived intact; bad data was lost or damaged.  We can then permute the elements of each vector to partition them into "good" ones and "bad" ones.  To keep the equation, we also need to permute the rows and columns of the code matrix to match each vector.
 
 r = | r_good |    C = | C_good,good C_good,bad |     i = | i_good |
     | r_bad  |        | C_bad,good  C_bad,bad  |         | i_bad  |
@@ -76,7 +82,7 @@ r_good = C_good,good*i_good + C_good,bad*i_bad
 
 i_bad = C_good,bad^-1*(r_good - C_good,good*i_good) 
 
-Here, "^-1" indicates the left inverse of the matrix.  Since the redundant data was made by multiplying the input data by the code matrix, the inverse of the code matrix allows us to recreate the missing input data from the redundant data.  Not every matrix has a left inverse.  When the left inverse does not exist, we cannot recover the input data.  A left inverse never exists when the matrix has more columns than rows, which means we cannot recover if there are more bad input blocks than good redundant blocks.  
+Here, "^-1" indicates the left inverse of the matrix.  Since the redundant data was made by multiplying the input data by the code matrix, the inverse of the code matrix allows us to recreate the missing input data from the redundant data.  Not every matrix has a left inverse.  When the left inverse does not exist, we cannot recover the input data.  A left inverse never exists when the matrix has more columns than rows, which means we cannot recover if there are more bad input blocks than good redundant blocks.
 
 Unlike in your linear algebra class, the elements of the vectors and matrices are not real numbers or complex numbers, but elements of a "Galois Field".  Like the computer's integers (a.k.a., the integers modulo 2^N), Galois Fields come in various sizes like 8-bits, 16-bits, etc. and support operations called addition, subtraction, multiplication, and division.  Unlike the computer's integers, "division" exactly inverts "multiplication" for every value.  (Computer integers can overflow during multiplication, preventing division from inverting the multiplication.)  That perfect inversion allows the linear algebra to work.
 
@@ -86,17 +92,17 @@ PAR 3.0 improves on PAR 2.0 by supporting multiple Galois Fields and by supporti
 
 Specifics of Computation 
 
-This section goes into the details of how redundant data for an input stream is computed and how recovery proceeds.  That is, how the mathematical vectors used in the previous section related to actual bytes in a file.
+This section goes into the details of how redundant data for an input stream is computed and how recovery proceeds.  That is, how the mathematical vectors used in the previous section are related to actual bytes in a file.
 
-Generating the recovery data starts with choosing a Galois Field and block size.  The Galois Field is usually chosen based on whatever is fastest for the computer's hardware.  For this example, it fits in 2-bytes (16-bits).  The block size is the smallest unit for recovering data.  It is usually chosen to match the transmission/storage technology or to limit overhead.  The block size must be a multiple of the size of the Galois Field.  For this example, it will be 2048 bytes, but in practice it can be much larger, often megabytes.
+Generating the recovery data starts with choosing a Galois Field and block size.  The Galois Field is usually chosen based on whatever is fastest for the computer's hardware.  For this example, it fits in 2-bytes (16-bits).  The block size is the smallest unit for recovering data.  It is usually chosen to match the transmission/storage technology or to limit overhead.  The block size must be a multiple of the size of the Galois Field.  For this example, it will be 2048 bytes, but in practice it can be much larger, even gigabytes.
 
 First, the entire input stream is broken into equal-sized blocks.  For now, assume the stream's length is a multiple of the block size.  (The specification handles any left-over piece separately.)  For this example, the input stream is 204800 bytes long and can be broken up into 100 blocks, each 2048 bytes long.  Each of those 100 blocks can be seen as holding 1024 Galois Field values (each 2-byte in size).  
 
-The next step reorganizes the blocks into vectors.  The 100 blocks containing 1024 Galois Field values becomes 1024 vectors containing 100 Galois Field values.  This is done the obvious way: swapping rows for columns and columns for rows.  The values in the i-th block become the i-th element of each vector; the j-th values in each block are used to make the j-th vector.   
+The next step reorganizes the blocks into vectors.  The 100 blocks containing 1024 Galois Field values becomes 1024 vectors containing 100 Galois Field values.  This is done the obvious way: swapping rows for columns and columns for rows.  The values in the i-th block become the i-th element of each vector; the j-th value in each block are used to make the j-th vector.   
 
 Next, the user chooses the numbers of recovery blocks that they want. The number of recovery blocks determines the maximum number of damaged/missing input blocks that we can recover.  Often the number of recovery blocks is 5% or 10% of the number of input blocks. 
 
-Next, the user chooses a code matrix.  The code matrix has a column for each input block and a row for each recovery block.  The elements of the matrix can be anything --- PAR 3.0 supports any linear code.  Codes vary in speed and the probability of recoverying from an error.  Some common choices will be a Cauchy matrix, for recovering any possible damage, or a sparse random matrix, for speed.
+Next, the user chooses a code matrix.  The code matrix has a column for each input block and a row for each recovery block.  The elements of the matrix can be anything --- PAR 3.0 supports any linear code.  Codes vary in speed and the probability of recoverying from an error.  Some common choices for the code matrix will be a Cauchy matrix, for recovering any possible damage, or a sparse random matrix, for speed.
 
 Next, for each input vector, we make a recovery vector by multiplying the input vector with the code matrix.  There is only one code matrix; the code matrix is the same for every pair of vectors.  Since there is one recovery vector for each input vector, there are 1024 recovery vectors.  The length of each recovery vector is equal to how many recovery blocks we want.  
 
@@ -110,11 +116,12 @@ The first step of recovery is identify elements of the input vectors associated 
 
 Next, we identify elements of the recovery vectors associated with the missing/damaged recovery block.
 
-Then, we perform the math (described above) which uses the good elements of each recovery vector to recover the bad elements of its associated input vector.  The math requires inverting a submatrix of the code matrix and, if the left inverse does not exist, we fail.
+Then, we perform the math (described above) which uses the good elements of each recovery vector to recover the bad elements of its associated input vector.  The math requires inverting a submatrix of the code matrix and, if the left inverse does not exist, we fail.  There are many ways to invert a matrix (E.g., Gaussian elimination, Fast Fourier Transform (FFT), and the incremental approach used my LDPC).  Clients may consider multiple strategies.
 
 After recovering the missing elements of each input vector, the data is reorganized to regenerate the missing input blocks.  Those blocks are written to the output stream.  The PAR stream contains a checksum for all the data sent to make sure that the repair process worked correctly.
 
 Having covered the math behind recovery and how the bytes are manipulated to fit the math, we can go into the details of the specification.  
+
 
 Conventions:
 
@@ -170,12 +177,12 @@ Table: Packet Header
 Length (bytes)	Type	Description
 8	byte[8]	Magic sequence. Used to quickly identify location of packets. Value = {'P', 'A', 'R', '3', 'R', 'E', 'C', '\0'} (ASCII)
 8	unsigned int	Length of the entire packet. Must be multiple of 8. (NB: Includes length of header.)
-16	K12 hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts at first byte of Stream ID and ends at last byte of body. Does not include the magic sequence, length field or this field.  
-16	K12 hash	StreamSegmentID.  All packets that belong together have the same StreamSegmentID. (See below for how it is calculated.)
+16	fingerprint hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts at first byte of Stream ID and ends at last byte of body. Does not include the magic sequence, length field or this field.  
+16	fingerprint hash	StreamSegmentID.  All packets that belong together have the same StreamSegmentID. (See below for how it is calculated.)
 16	byte[16]	Type. Can be anything. All beginning "PAR " (ASCII) are reserved for specification-defined packets. Application-specific packets are recommended to begin with the ASCII name of the client.
 ?*8	?	Body of Packet. Must be a multiple of 8 bytes.
 
-The StreamSegmentID is used to identify packets that should be processed together, even if those packets were written to separate PAR 3.0 Recovery files or arrive via different transmission methods.  The StreamSegmentID should be a globally unique random number.  One way to generate the random number is the K12 hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.  (Be careful that the machine identifier is actually unique!  Many computers share the same IP Address in one of the private address ranges.)  Another is method for generating a globally unique ID, if the stream's data is known ahead of time, is to use a K12 hash of the Galois Field parameters, block size, and the the entire stream's contents.
+The StreamSegmentID is used to identify packets that should be processed together, even if those packets were written to separate PAR 3.0 Recovery files or arrive via different transmission methods.  The StreamSegmentID should be a globally unique random number.  One way to generate the random number is the fingerprint hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.  (Be careful that the machine identifier is actually unique!  Many computers share the same IP Address in one of the private address ranges.)  Another is method for generating a globally unique ID, if the stream's data is known ahead of time, is to use a fingerprint hash of the Galois Field parameters, block size, and the the entire stream's contents.
 
 There are various types of packets. The "core" set of packets - the set of packets that all clients must recognize and process - are listed next. For each, the value for the "type" field will be listed along with the contents of the body of the packet. 
 
@@ -186,35 +193,47 @@ This packet is used to identify the client that created the stream.  It is requi
 
 This packet is used for debugging.  If a decoding client is unable to recover the input set due to a badly created file, the contents of the creator packet MUST be shown to the user.  The goal of this is that any client incompatibilities can be found and resolved quickly.
 
-The creator packet has a type value of "PAR 3.0\0Creator\0" (ASCII). The packet's body contains the following:
+The Creator packet has a type value of "PAR 3.0\0Creator\0" (ASCII). The packet's body contains the following:
 
 Table: Creator Packet Body Contents
 Length (bytes)	Type	Description
-?*8	UTF-8 char array	UTF-8 text identifying the client, options, and contact information.  Reminder: This is not a null terminated string.
+?*8	UTF-8 string	UTF-8 text identifying the client, options, and contact information.  Reminder: This is not a null terminated string.
 
 The text in the Creator packet MUST identify the client that created the stream.
 
 It is RECOMMENDED that the text also include the parameters used to generate the stream.  For example, a command-line tool could include all the command-line options. 
 
-It is RECOMMENDED the text include a way to contact the author of the tool.  E.g., an email address.  
+It is RECOMMENDED the text include a way to contact the author of the tool.  E.g., an email address or the URL of a webpage for submitting new issues.  
+
+
+Comment packet
+
+The Comment packet contains a comment in UTF-8.  This string should be shown to the user. If multiple copies of the same comment are found, only one need be shown.
+
+The Comment packet has a type value of "PAR 3.0\0Comment\0" (ASCII). The packet's body contains the following
+
+Table Comment Packet Contents
+Length (bytes)	Type	Description
+?*8	UTF-8 string	The comment. NB: This is not a null terminated string!
+
 
 
 Segment Start packet
 
 This packet says where a segments starts in a steam.  If the segment has a preceeding segment, this packet says what the preceeding segment is.
 
-The creator packet has a type value of "PAR 3.0\0Start\0\0\0" (ASCII). The packet's body contains the following:
+The Segment Start packet has a type value of "PAR 3.0\0Start\0\0\0" (ASCII). The packet's body contains the following:
 
-Table: Creator Packet Body Contents
+Table: Segment Start Packet Body Contents
 Length (bytes)	Type	Description
-16	unsigned int	The starting index of the segment in the stream.
-16      K12 hash 	The checksum of the preceeding Segment End packet, or random.
+16	unsigned int	The index of the first byte in the stream that is part of this segement
+16      fingerprint hash 	The checksum of the preceeding Segment End packet, or zeroes.
 
 If this is the first segment in a stream, the starting index is set to 0.  Otherwise, the starting index is equal to the stream's length at the end of the preceding segment.
 
-If this is the first segment in a stream, the checksum is set to a globally unique random number.  Otherwise, the checksum is preceding Segment End packet.  
+If this is the first segment in a stream, the checksum is set to all zeroes.  Otherwise, the checksum is preceding Segment End packet.  
 
-There is only one Segment Start packet per segment.  The packet can be duplicated.
+There is only one Segment Start packet per segment.  There can be multiple identical copies of this packet in the stream.  (This is true for all packets.)
 
 Note: The StreamSegmentID for this new segment is available in the header of the packet.  The main purpose of this packet is to declare a new StreamSegmentID.  
 
@@ -235,7 +254,7 @@ For Par 3.0, the offset will always be a multiple of the block size.  In future 
 
 The data's length is implicit.  (The packet's entire length is written in the packet header.)
 
-For Par 3.0, Data packets will contain an entire block's worth of data.  If the data's length is less than the block size, the rest of the block will be filled with zeroes.  (This is the default for any unspecified data in the stream.)   If a stream segment ends mid-block, the fractional last block will be sent in the Segment End packet.  If a stream segment starts mid-block, when it completes its first block, the first Data packet will contain a full block: both the fraction at the end of the previous segment and the fraction at the start of the current segment.  (Yes, this means that segments that do not end on block boundaries can result in data being sent twice.)
+For Par 3.0, Data packets will contain an entire block's worth of data.  If the data's length is less than the block size, the rest of the block will be filled with zeroes.  (This is the default for any unspecified data in the stream.)   If a stream segment ends mid-block, the fractional last block will be sent in the Segment End packet.  If a stream segment starts mid-block, when it completes its first block, the first Data packet will contain a full block: both the fraction at the end of the previous segment and the fraction at the start of the current segment.  (Yes, this means that segments that do not end on block boundaries can result in data being sent twice.) 
 
 
 
@@ -245,17 +264,17 @@ This packet contains checksums for input blocks that are not stored inside a Dat
 
 The External Data packet has a type value of "PAR 3.0\0External" (ASCII). The packet's body contains the following:
 
-Table: Data Packet Body Contents
+Table: External Data Packet Body Contents
 Length (bytes)	Type	Description
 8	unsigned int	block size
 8	unsigned int	Index of the first input block in the stream
-16	{CRC32, 12-byte K12 hash} A rolling checksum and finger print for each input block
+16	{rolling hash, 12-byte fingerprint hash} A rolling checksum and finger print for each input block
 
 The block size must be a multiple of 8.  In Par 3.0, the block size in every packet in a stream is the same.  That may change in future versions.
 
-The index is the number of the first block for which there is a checksum.
+The index is the number of the first block for which there is a checksum.  The byte offset in the stream of the first byte in the first block will be this value times the block size.
 
-The tuples contain a rolling hash (CRC32) and a fingerprint hash (K12 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block that starts at the index times the block size and goes for block size bytes.  The second pair of check sums is for the following block.  Etc.
+The tuples contain a rolling hash (CRC32) and the lower 12 bytes of the fingerprint hash (K12 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block that starts at the index times the block size and goes for block size bytes.  The second pair of check sums is for the following block.  Etc.
 
 Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the right block (because the rolling hash is less trustworthy).
 
@@ -264,15 +283,17 @@ Segment End Packet
 
 This packet contains a checksum for the stream at a given point.  This packet is sent when the sender "flush"es the stream and at the end of the stream.
 
-Table: Checksum Packet Body Contents
+The Segment End packet has a type value of "PAR 3.0\0SegEnd\0\0" (ASCII). The packet's body contains the following:
+
+Table: Segment End Packet Body Contents
 Length (bytes)	Type	Description
 16	unsigned int	length of the stream
-32	K12 hash	The checksum
+32	fingerprint hash	The K12 checksum of all the stream's data
 ?*8	unsigned int	Trailing data
 
 This packet is used to ensure that the entire contents of the input stream upto a given spot has arrived correctly.  
 
-Ideally, the input stream's length is a multiple of the block size.  However, if that does not happen, the data in this packet contains the last fraction of a block.  The trailing data always represents the data before the end of the segment, plus 0 to 7 bytes of zero padding to make sure the packet is aligned.  
+Ideally, the input stream's length is a multiple of the block size.  However, if that does not happen, the data in this packet contains the last fraction of a block.  The trailing data always represents the data before the end of the segment, plus 0 to 7 bytes of zero padding to make sure the packet is aligned.  To be clear, the start of the trailing data is always 8-byte aligned in the stream.
 
 In PAR 3.0, the trailing data will only contain exactly the data from the final partially-filled block.  No more; no less.  That is open to change in future versions.
 
@@ -364,13 +385,13 @@ Sparse Random Matrix Packet
 
 This packet describes a sparse random matrix.  It is faster to calculate recovery blocks with a sparse matrix, if the user is willing to accept a slightly higher chance of not recoverying from extreme cases.
 
-To be specific, consider a sparse random matrix with N recovery blocks such that the matrix has at least N*ln(N) non-zero elements.  This matrix is able to recover from almost all cases where N - C input blocks are lost.  The probability of failing for a given C is propotional to 1/(g^C) where g is the number of unique the Galois field values.  Thus, for a 1-byte Galois field with 256 values, the probably that recovery fails with N-3 lost input blocks, is 1/(256^3) or less than one-in-a-million.  See "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl.
+For N input blocks, the sparse random matrix will usually have N*ln(N) non-zero elements.  This matrix is able to recover from almost all cases where N - C input blocks are lost, for some small constant C.  The probability of failing for a given C is propotional to 1/(g^C) where g is the number of unique the Galois field values.  Thus, for a 1-byte Galois field with 256 values, the probably that recovery fails with N-3 lost input blocks, is 1/(256^3) or less than one-in-a-million.  See "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl.
 
 Recall that for any matrix, N+1 lost input blocks can never be recovered.  Using a sparse matrix, rather than a Cauchy, can be upto N/ln(N) times faster.  Users that can store/send 6 additional recovery blocks can get much faster performance with less than a 1-in-a-trillion increase in failure to recover.
 
-The speed and probability of recovery are better when the number recovery blocks is large.  When there are few recovery blocks, the Cauchy matrix is strongly recommended.
+The speed and probability of recovery are better when the number of recovery blocks is large.  When there are few recovery blocks, the Cauchy matrix is strongly recommended.
 
-The matrix rows packet has a type value of "PAR 3.0\0Sparse\0\0" (ASCII). The packet's body contains the following:
+The Sparse Random Matrix packet has a type value of "PAR 3.0\0Sparse\0\0" (ASCII). The packet's body contains the following:
 
 Table: Sparse Random Matrix Packet Body Contents
 Length (bytes)	Type	Description
@@ -382,7 +403,7 @@ Length (bytes)	Type	Description
 8	unsigned int	Index of last input block plus 1
 8	unsigned int	maximum number of recovery blocks
 8       unsigned int	number of non-zero elements per input block
-8	unsigned int    lower bits of random number generator seed
+8	unsigned int    random number generator seed
 
 The Galois field entries were described above.
 
@@ -394,24 +415,26 @@ Otherwise, each input blocks's non-zero elements are generated and then shuffled
 
 \/ \/ \/ TODO \/ \/ \/
 
-First, the start of the column is filled with zeroes.  If the column has N elements (that is, the number of rows is N) and will have K non-zero elements, then the first N-K elements are set to zero.
+1. allocate a matrix with R rows and C columns, where R is the number of input blocks and C is the number of recovery blocks
 
-Second, the pseudorandom number generator (PNRG) is initialized.  The generator is the PCG-XSL-RR, which has 128-bits of state and generates 64-bit pseudorandom numbers.  For each column of the matrix, the 128-bit seed is initialized with the higher 64-bits equal to the zero-indexed column of the matrix and the lower 64-bits equal to the seed value from the packet.
+2. generate K random non-zero Galois Field values at the start of each row of the matrix.  Fill the rest of each row with zeroes.  K will usually equal log(R), the log of the number of input blocks.
 
-Third, non-zero elements are placed at the end of the column.  If there are K non-zero elements in a column, random non-zero Galois field values are placed in zero-indexed locations N-K-1 through N-1 of the column.  Random Galois field values are generated by filling them from the least-significant bytes to most significant using 64-bit values generated from the PRNG.  If the random value does not use all the bits of a value from the PRNG, the unused bits are discarded.  Since we want non-zero random values, if a zero is randomly generated, it is immediately discarded and whole new random values are generated.  Only when a non-zero value is generated do we move to the next location in the column.  This continues until the final K locations in the column have non-zero values.  
+3. shuffle the elements in each row.  The random non-zero values will then be evenly distributed.
 
-The last step in generating a random column is shuffling the non-zero values into their final location.  This is the usual O(N) shuffling algorithm, which swaps values into random locations.  (Wikipedia calls it "Fisher-Yates shuffle", others "Knuth shuffle".)  The first random location is in the range 0 to N-K-1 and is generated by taking a 64-bit unsigned value from the PRNG and applying modulus N-K.  The first non-random value, which is at location N-K-1, is then swapped with the value in the first random location.  (If the random location is N-K-1, then it "swaps with itself" and the column is not changed.)   The second random location is in the range 0 to N-K.  The second random non-zero value, at location N-K, is then swapped.  The third random location is in the range 0 to N-K+1.  Etc.  The final random non-zero value will be swapped to any location in the column.
+?. require clients to estimate the probability of recovery, so that users know what they're getting
+
+/\ /\ /\ TODO /\ /\ /\
 
 The final result is a column with K random non-zero values in random locations.  This will mean data from from each input block will be incorporated into K different recovery blocks.  
 
-/\ /\ /\ TODO /\ /\ /\
+
 
 
 Explicit Matrix Packet
 
 This packet describes a matrix that computes a single recovery block.  The values of the elements are explicitly contained in the packet, and not computed like the other matrix packets.  It is intended to be used for LDPC, such as Tornado Codes.
 
-The matrix rows packet has a type value of "PAR 3.0\0Explicit" (ASCII). The packet's body contains the following:
+The Explicit Matrix rows packet has a type value of "PAR 3.0\0Explicit" (ASCII). The packet's body contains the following:
 
 Table: Explicit Matrix Packet Body Contents
 Length (bytes)	Type	Description
@@ -433,12 +456,12 @@ Recovery Data Packet
 
 This packet contains a recovery block.
 
-The recovery data packet has a type value of "PAR 3.0\0Recovery" (ASCII). The packet's body contains the following:
+The Recovery Data packet has a type value of "PAR 3.0\0Recovery" (ASCII). The packet's body contains the following:
 
 Table: Recovery Data Packet Body Contents
 Length (bytes)	Type	Description
-16	K12 hash	The checksum from the Matrix packet
-16	K12 hash	The checksum from the Segment End packet
+16	fingerprint hash	The checksum from the Matrix packet
+16	fingerprint hash	The checksum from the Segment End packet
 8	unsigned int	The index of the recovery block
 ?*8	data	 	The recovery block data
 
@@ -454,16 +477,18 @@ File Packet
 
 This represent a file in the input set.
 
-PAR 3.0's default behavior is to ignore all metadata except for the filename (and directory location).  Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some filesystems.  
+PAR 3.0's default behavior is to ignore all metadata except for the filename (and directory location, which is stored elsewhere).  Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some filesystems.  
 
 PAR 3.0 does not always protect all of a file.  This packet's contents describe the sections of the file that are protected.
+
+The File packet has a type value of "PAR 3.0\0File\0\0\0\0" (ASCII). The packet's body contains the following:
 
 Table: File Packet Body Contents
 Length (bytes)	Type	Description
 2      unsigned int	length of filename
 ?      UTF-8 string    filename
 0 to 7 padding         zeros
-?*64	{16-byte unsigned int, 16-byte unsigned int, 16-byte unsigned int, K12 hash}	mapping of file contents to input stream 
+?*64	{16-byte unsigned int, 16-byte unsigned int, 16-byte unsigned int, fingerprint hash}	mapping of file contents to input stream 
 
 The first entry holds the length of the filename.  (FYI: 255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in upto 4kB of storage.)
 
@@ -486,12 +511,14 @@ This represent a directory in the input set.
 
 PAR 3.0's default behavior is to ignore all metadata except for the directory's name (and location in parent directories).   Since each file system stores a different set of metadata, there are optional packets that can store the metadata for some filesystems.  
 
-Table: File Packet Body Contents
+The File packet has a type value of "PAR 3.0\0Dir\0\0\0\0\0" (ASCII). The packet's body contains the following:
+
+Table: Directory Packet Body Contents
 Length (bytes)	Type	Description
 2      unsigned int    length of string
 ?      UTF-8 string    name of directory
 0 to 7 padding         zeros
-?*16	K12 hash       checksums of File and Directory packets
+?*16	fingerprint hash       checksums of File and Directory packets
 
 The first byte is the length of the directory's name.  (255 bytes is the limit on NTFS, EXT4, and exFAT.  ReiserFS supports 255 characters, in upto 4kB of storage.)
 
@@ -499,16 +526,20 @@ The directory's name is a UTF-8 string.  It is not NUL-terminated.
 
 There will be 0 to 7 bytes of zero-byte padding, to make the packet 8-byte aligned.  
 
+For each file and subdirectory contained in the directory, the checksum of the associated File packet or Directory packet is contained in the Directory packet.  (You can see that directories containing themselves is impossible in this format.)  The checksums are in numerical order.
+
 
 
 Root Packet
 
 This packet identifies the top-level of a directory tree.
 
-Table: File Packet Body Contents
+The Root packet has a type value of "PAR 3.0\0Root\0\0\0\0" (ASCII). The packet's body contains the following:
+
+Table: Root Packet Body Contents
 Length (bytes)	Type	Description
-16	K12 hash       checksum of Directory packet
-16	K12 hash       checksum of Checkpoint packet
+16	fingerprint hash       checksum of Directory packet
+16	fingerprint hash       checksum of Checkpoint packet
 8	unsigned int   attributes
 
 The checksum of the Directory packet is used to identify the top-level directory. 
@@ -521,13 +552,26 @@ There is at most one Root packet per stream segment.
 
 
 
+File System Specific Packets
+
+The following packets are used to contain the metadata for specific file systems.  It is RECOMMENDED that clients write the packets for the particular file system that the client is run on.  It is also RECOMMENDED that clients support decoding the packets that they write.
+
+The metadata often contains security-related features: ownership of files, etc..  Client authors are encouraged to take security seriously.  We do not want PAR3 to become a method for hackers to attack our users systems.  If a piece of metadata could be used to violate security, the default action of the client should be to ignore it or to query the user.  It is REQUIRED that the user's permission be granted for any action that might jeapordize their security.
+
+In addition to the packet-specific information below, there is a separate section of this document devoted to security.  Client authors should follow it and investigate any common ways to hack their particular system.
+
+PAR 3.0 supports 3 metadata for 3 file systems: a generic UNIX file system, NTFS, and FAT.  This should provide coverage of most features on the most used operating systems: Linux, Windows, and MacOS.  Future versions of PAR may include support for additional file systems.
+
+
 UNIX File Packet
 
-This packet holds a file's metadata from a generic UNIX system.  It is based on Linux's EXT4 file system, but does not capture all the details of that system. 
+This packet holds a file's metadata from a generic UNIX system.  It is based on Linux's EXT4 file system, but does not capture all the details of that system.  
+
+The UNIX File packet has a type value of "PAR 3.0\0UnixFile" (ASCII). The packet's body contains the following:
 
 Table: UNIX File Packet Body Contents
 Length (bytes)	Type	Description
-16	K12 hash        checksum of File packet, or zeros.
+16	fingerprint hash        checksum of File packet, or zeros.
 8      unsigned int	atime, nanoseconds since the Epoch
 8      unsigned int	ctime, nanoseconds since the Epoch
 8      unsigned int	mtime, nanoseconds since the Epoch
@@ -575,9 +619,11 @@ UNIX Directory Packet
 
 This packet holds a directory's metadata from a generic UNIX system.  It is based on Linux's EXT4 file system, but does not capture all the details of that system. 
 
-Table: UNIX File Packet Body Contents
+The UNIX Directory packet has a type value of "PAR 3.0\0UNIXDir\0" (ASCII). The packet's body contains the following:
+
+Table: UNIX Directory Packet Body Contents
 Length (bytes)	Type	Description
-16	K12 hash        checksum of Directory packet
+16	fingerprint hash        checksum of Directory packet
 8      unsigned int	atime, nanoseconds since Epoch
 8      unsigned int	ctime, nanoseconds since Epoch
 8      unsigned int	mtime, nanoseconds since Epoch
@@ -590,7 +636,7 @@ Length (bytes)	Type	Description
 2      unsigned int    length of string
 ?      UTF-8 string    name of group
 0 to 7 padding         zeros
-?*16	K12 hash        checksum of Unix File packets
+?*16	fingerprint hash        checksum of Unix File packets
 
 The checksum is for a Directory packet, associated with these attributes.
 
@@ -616,10 +662,12 @@ UNIX Root Packet
 
 This packet identifies the top-level of a UNIX directory tree.
 
-Table: File Packet Body Contents
+The UNIX Root packet has a type value of "PAR 3.0\0UNIXRoot" (ASCII). The packet's body contains the following:
+
+Table: UNIX Root Packet Body Contents
 Length (bytes)	Type	Description
-16	K12 hash       checksum of UNIX Directory packet
-16	K12 hash       checksum of Root packet
+16	fingerprint hash       checksum of UNIX Directory packet
+16	fingerprint hash       checksum of Root packet
 
 
 The checksum of the UNIX Directory packet is used to identify the top-level directory. 
@@ -629,15 +677,17 @@ The checksum of the Root packet identifies the data in the stream, indirectly.  
 There is at most one UNIX Root packet per stream segment.
 
 
+\/ \/ \/ TODO \/ \/ \/
+
+NTFS File Packet
+NTFS Directory Packet
+NTFS Root Packet
 
 FAT File Packet
 FAT Directory Packet
 FAT Root Packet
 
-
-NTFS File Packet
-FAT Directory Packet
-FAT Root Packet
+/\ /\ /\ TODO /\ /\ /\
 
 
 Security:
@@ -670,6 +720,24 @@ Client writers can avoid this error by checking the amount of free disk space be
 
 Earlier versions of PAR avoided including file permissions in the standard, because security issues are difficult to get right.  Please take security seriously.  
 
+Order of Packets:
+
+In order for a client to do single-pass recovery, the recommended order of packets for the stream use-case is:
+
+Creator
+Segment Start
+Matrix 
+Data
+Segment End
+Recovery
+
+The Matrix packets contain information (often hints) at how many buffers the receiver will have to allocate for the recovery data. 
+
+Some vital packets (Segment Start, Matrix, Segment End) are not recoverable using the Recovery data.  Those packets will need to be repeated, at different places in the stream.
+
+Single-pass recovery is only possible in some cases.  If the packets do not arrive in the order above, a client will have to fall back to a multi-pass recovery algorithm.
+
+
 
 Appending Data:
 
@@ -684,6 +752,20 @@ In the case of an incremental backup, the new stream segment will contain a new 
 Any blocks that changed in files will be put in the new stream segment.  (The unchanged blocks will still be available in the previous stream segment.)  Obviously, the new File packets' mappings will be used to stitch together the unchanged blocks and new blocks to create the file's contents.
 
 It's worth noting that if a user only wants to change the names of files in the input set, it can be done by appending to the stream.  
+
+
+
+PAR Inside Another File
+
+PAR packets can be used to protect the file in which they are stored.  They cannot protect all of the file, because PAR packets only protect the input data and not themselves.  When PAR is used inside another file format to protect it, we call it "PAR inside".  So, if PAR protects a ZIP file, we call it "PAR inside ZIP".
+
+An example of using PAR inside is with the ZIP file format.  The ZIP file format stores compressed files at the front and the list of all files at the end, but, inbetween, space can be used for any data without affecting the ZIP file's contents.  PAR packets can put in this space.  The PAR packets can protect the start and end of the file, where ZIP stores its data.  This way, if the file ever gets damaged, the PAR packets can be used to fix the ZIP data.  It is a file that contains data to repair itself.
+
+To make PAR inside work, the PAR packets need to contain one File packet, which refers to the file itself.  Thus, the name in the File packet must match the name of the file.  The File packet would map only the protected portions of the file to the input stream.  In the case of the ZIP file, only the start and end of the file would be mapped to the input stream.  The middle of the file, where the PAR packets are stored, would not be mapped.  Obviously, External Data packets would be used and not Data packets.
+
+It is possible to protect the non-redundant parts of a PAR file using "PAR inside".  This is called "PAR inside PAR".  Thus, instead of repeating vital packets (Segement Start, Matrix, Segment End, File, Directory, and Root packets), the sections of the file containing them would be protected using "PAR inside".  The PAR inside packets would be distinguishable from the "outside" PAR packets because they would have a different StreamSegmentID.  
+
+The "inside" PAR packets cannot protect themselves.  The vital "inside" PAR packets would still need to be repeated and spread through out the file.  The "PAR inside PAR" concept only makes sense if the vital "outside" PAR packets took up a lot of space.   For example, when storing a large number of files.  Then, the space used by vital "inside" PAR packets would be much smaller than the vital "outside" PAR packets and repeating the vital inside PAR packets would shrink the overhead and minimize the amount of data could make the PAR file unusable.
 
 
 Conventions:
@@ -705,193 +787,32 @@ If just a single PAR file is generated, it is expected that the vital packets ar
 Recall that all files must contain a creator packet.
 
 
-
 Conclusion:
 
-PAR 3.0 can be used for protecting data where it can be damaged in storage or transmission.  It can be used to protect
+PAR 3.0 is a big step over PAR 2.0.  It has new capabilities (streaming), expanded capabilities (more than 2^16 blocks/files) and is very flexible (any Galois field and any code matrix).  We hopes its users use and enjoy these.
 
 
+A. How to Add an Application-Specific Packet Type
 
+Say the author of "NewsPost" wanted to add his own packet type - one that identified the names of the Usenet messages in which the files are posted. That author can create his own packet type. For example, here is the layout for one where the Usenet messages are identified by a newsgroup and a regular expression which all matches the names of the usenet articles.
 
-Parameter selection:
+The packet has a type value of "NewsPostUsenet\0\0". (NB: Including the name of the client in the type is the recommended way to ensure unique type names.) The packet's body contains the following:
 
-PAR 3.0 has a lot of parameters.  It's worth considering the time and space of those choices.
-
-As far as time goes, the major expenses are calculating hashes, inverting the code matrix, and regenerating the input data.
-
-Smaller blocks do mean more hash calculations.  It isn't clear that this will affect the runtime, since the same amount of data needs to be hashed.  Still, that hashing (and writing data) is likely to determine the runtime when verifying data that has no errors.
-
-Inverting the code matrix, in the worst case, usually runs in O(N^3) time, where N is the number of blocks that need to be recovered.  There is an algorithm based on the fourier transform that can make it faster, but whatever exact value, this is likely to be the dominant factor of the runtime during repairs.  Since N is bound by the number of recovery blocks, it helps to keep this number smaller.  A valid approach would be setting a constant number of recovery blocks and adjusting the block sizes 
-
-
-
-
-Out-of-Stream Data Packet
-
-This packet contains checksums for blocks that arrive by means other than a PAR 3.0 Recovery file.  It is used when the input file is sent along side the PAR 3.0 Recovery files.
-
-The data packet has a type value of "PAR 3.0\0BlkChkSm" (ASCII). The packet's body contains the following:
-
-Table: Data Checksum Packet Body Contents
+Table B.3. Example Application Specific Packet
 Length (bytes)	Type	Description
-16	K12 hash	The checksum from the BlockGF packet
-16	unsigned int	The location of the first byte of the first block in the single input file.
-?*16	{CRC32C, K12 hash} array	CRC32C and 12-byte K12 hash for a sequence of blocks in the single input file.  The CRC32C comes before the 12-byte K12 hash.
+16	fingerprint hash	The checksum of the File packet
+2	unsigned int	The length of the string containing the name of the newsgroup. 
+?	UTF-8 string	The name of the newsgroup. For example, "alt.binaries.multimedia".
+0 to 7  padding         zeroes
+2	unsigned int	The length of the string containing the regular expression.
+?       UTF-8 string	A regular expression matching the name of articles containing the file. For example, "Unaired Pilot - VCD,NTSC - (??/??)".
+0 to 7  padding         zeroes
 
-The CRC32C checksum is a rolling checksum.  It can be used to find block-sized pieces that have moved.
 
-Notice that the K12 hash is only 12-bytes long here.  That is to keep the 8-byte alignment of data.  The K12 hash is used to uniquely identify the block, since CRC32C might not be unique.
+Appendix B:
 
+\/ \/ \/ TODO \/ \/ \/
 
+License text
 
-
-
-
-
-
-Conventions:
-
-To make sure clients work similarly, the following client conventions should be followed.
-
-When supporting single-pass recovery, the order of packets should be:
-  Creator packet
-  Basic packet
-  Matrix packets
-  Data packets or Out-of-Stream Data packets
-  Checksum packets
-  Recovery Data packets
-
-The decoding PAR client can recovery the information in Data packets and Recovery Data packets, but not in any of the other packets.  It is necessary to repeat those packets multiple time, possibly copied in multiple files or multiple times in the same file.  
-
-PAR Recovery 3.0 files should always end in ".par3". For example, "file.par3". If a file contains recovery data packets, the ".par3" should be preceded by ".volXX+YY" where XX is the matrix row of the first recovery block contained in the file and YY is the number of recovery blocks in the file. For example, "file.vol20+10.par2". More than 2 digits should be used if necessary. Any row numbers that contain fewer digits than the largest row number should be preceded by zeros so that all filenames have the same length. For example, "file.vol075+50.par2". Row numbers should start at 0 and go upwards.
-
-If multiple PAR files are generated, they may either have a constant number of blocks per file (e.g. 20, 20, 20, ...) or exponentially increasing number of blocks (e.g., 1, 2, 4, 8, ...). Note that to store 1023 blocks takes 52 files if each has 20 blocks, but takes only 10 files with the exponential pattern.
-
-Recall that all files must contain a creator packet.
-
-
-End of description of PAR 3.0 Recovery file format
-
-The PAR 3.0 Recovery file format only does recovery on the contents of a single file.  It can be used with any other file format to deliver the contents over a potentially unreliable network or a potentially faulty storage system.
-
-
-
-PAR 3.0 Archive file format
-
-The PAR 3.0 Archive file format is a simple archive file format.  It groups multiple files together.  For each file, it stores the metadata, including: filename, read/write/execute bits, and some timestamps.  If the file is damaged, most of the contents can be recovered.
-
-It supports an incremental backup by appending to the archive file.
-
-It supports being packaged inside the file it contains.  This is how we package PAR recovery data inside another file.  When this approach is done, only some of the containing file is able to be protected.
-
-Layers
-
-The file format has 2 layers.  The lower layer is concerned with the transfer of a group of data objects.  The upper layer interprets data objects as either metadata for a file or the contents of the file.
-
-The lower layer could be reused with the PAR 3.0 Recovery file format as a network protocol that delivers a set of data objects with high reliability. 
-
-Packets
-
-Like the PAR 3.0 Recovery file format, the PAR 3.0 Archive file format has packets.  Files are made of packets: self-contained parts with their own checksum. This design prevents damage to one part of the file from making the whole file unusable.
-
-Packets have a type and each type of packet serves a different purpose.  One stores some of the data for a data object.  Another holds the checksum for a data object.  Another holds the checksum for the entire group of objects.  There are many other types.
-
-A PAR 3.0 Archive file is only required to contain 1 specific packet - the packet that identifies the client that created the file. This way, if clients are creating files that don't match the specification in some way, they can be tracked down.
-
-A PAR 3.0 Archive file is a single file.  The format does NOT support data being split into multiple files, like PAR 3.0 Recovery file format.  Packets do contain a Stream ID, but this is to detect if a PAR 3.0 Archive file contains another PAR 3.0 Archive file inside it.  Clients only want to process data from the outermost stream.
-
-Packets can appear in any order in a file, but there is a recommended order that allows some clients to recreate the input files in a single pass.  
-
-
-Packet Header
-
-A PAR 3.0 Archive file consists of a sequence of "packets".  A packet has a fixed-sized header and a variable length body. 
-
-The packet header contains a checksum for some of the packet.  Unlike PAR 3.0 Recovery file format, this is not for the entire packet.  If the checksum does math the entire packet is ignored.  By only including some of the packet in the checksum, if the packet contents contain damaged file data, the decoding client can still written the damaged data out to the correct location of the correct file.
-
-The packet header also contains a packet-type.  If the client does not understand the packet type, the packet is ignored. To be compliant with this specification, a client must understand the "core" set of packets. Client may process the optional packets or create their own application-specific packets.
-
-
-Table: Packet Header
-Length (bytes)	Type	Description
-8	byte[8]	Magic sequence. Used to quickly identify location of packets. Value = {'P', 'A', 'R', '3', 'A', 'R', 'C', '\0'} (ASCII)
-8	unsigned int	Length of packet protected by the checksum.  Must be a multiple of 8.  
-16	K12 hash	K12 Hash of packet. Used as a checksum for the packet. Calculation starts at first byte of StreamSegmentID and ends at last byte of body. Does not include the magic sequence, length-protected-by-checksum field or this field.  
-16	K12 hash	StreamSegmentID.  All packets that belong together have the same StreamSegmentID. (See below for how it is calculated.)
-8	unsigned int	Length of the entire packet. Must be multiple of 8.
-16	byte[16]	Type. Can be anything. All beginning "PAR " (ASCII) are reserved for specification-defined packets. Application-specific packets are recommended to begin with the ASCII name of the client.
-?*8	?	Body of Packet. Must be a multiple of 8 bytes.
-
-The StreamSegmentID is used to identify packets that should be processed together.  It can be used to separate the packets when a PAR 3.0 Recovery file is stored inside another PAR 3.0 Recovery file.  Or to separate packets when two PAR 3.0 streams are written into the same file.  If the contents of all the files are known, it could be a K12 hash of the K12 hashses of all the files in a known order.  This is impossible in streaming or single-pass situations.  In those cases, it should be a globally unique random number.  One way to generate the random number is the K12 hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp. 
-
-There are various types of packets. The "core" set of packets - the set of packets that all clients must recognize and process - are listed next. For each, the value for the "type" field will be listed along with the contents of the body of the packet. 
-
-
-
-
-
-
-
-
-
-
-Input files have a "file index", which is an 8-byte unsigned integer.  For most uses, the file indices will be 0, 1, 2, ... N-1.  The file index is used to differentiate between two files that have the identical contents, but are different files.  Files that do not contain data (directories, hardlinks, softlinks) do not have a file index.
-
-
-
-
-
-This document describes a file format for storing redundant data for a set of files.  If any of the original files is damaged in storage or transmission, the redundant data can be used to regenerate the original input.  Of course, not all damages can be repaired, but many can.
-
-In some cases, the redundant data can be stored in the same file as the data to be protected.  For example, a ZIP file could contain data files and redundant dat that follows this document's file format.  This ZIP file would work as a ZIP file while, at the same time, containing the information to repair itself, if it ever got damaged.   
-
-The file format can also be used as a streamable protocol.  The original data is sent in a stream along with redundant data.  The receiver can pull the original data out of the stream and, if any of the original data is damaged or lost in transmission, the redundant data can be used to regenerate the missing data.  Again, not all damages can be repaired, but many can.
-
-
-
-
-BlockGF packet
-
-This packet contains the block size and Galois Field.  It also identifies the parent stream, if there is one.
-
-The Start packet has a type value of "PAR 3.0\0BlockGF\0" (ASCII). The packet's body contains the following:
-
-Table: Start Packet Body Contents
-Length (bytes)	Type	Description
-8	unsigned int	block size in bytes
-8	unsigned int	The size of the Galois field in bytes.
-?	?-byte GF	The generator of the Galois field without its leading 1.
-0 to 7  padding		zeroes
-16      K12 hash        Stream ID of parent stream, or all zeros.
-
-The block size must be a multiple of 8.  It must also be a multiple of the Galois Field size. 
-
-The third entry in the packet holds an element of the Galois field.  It is written in little-endian format and padded with 0 to 7 zero bytes afterwards.  Thus, if the Galois field had a size of 2-bytes and a generator of 0x1100B, the entry's first two bytes would hold the value 0x100B in little-endian format and the next 6 bytes would be zeroes.  Notice that the entry does not encoded the leading 1 that is present in the mathematical notation of the generator.  
-
-Clients must support every possible Galois field. 
-
-Clients are expected to optimize performance for specific Galois fields.  Some likely targets for optimization are:
-
-Table: Common Galois Fields
-Size (bits)    Generator (hexidecimal)
-8              0x11B 
-16             0x1100B
-128            (1 << 128) + 0x43 
-
-Note: The 8-bit Galois field is supported by the x86 instruction GF2P8MULB.
-
-Note: The 16-bit Galois field is the same as in Par 2.0.
-
-Note: All 64-bit Galois fields are supported by the x86 instruction CLMUL.
-
-Note: The 128-bit Galois field is implemented by Intel in this white paper:
-https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/carry-less-multiplication-instruction-in-gcm-mode-paper.pdf
-
-Note: The ARM processor has an instruction extension called "NEON" with a VMULL instruction.  VMULL.P8 will do eight 8-bit Galois field multiplications at once.
-
-The "parent stream" concept will mostly be used for incremental backups.  In this use case, there is an original backup of all files and then a incremental backup containing changes since the original.  The incremental backup is a different stream, but might want to reuse data from the original backup.  This works by appending the new data to the end of single file in the parent stream.  If the parent stream is non-zero, the block size and Galois field must be the same as those of the parent stream.  If the parent stream is non-zero, the client stream cannot use data block indices already used by the parent stream nor use recovery block indicies used by the parent stream.  
-
-For any Stream ID, there should be only 1 parent stream.
-
-For PAR 3.0, there will be only 1 BlockGF packet per stream.  That is, recovery can only be done with one block size and one Galois Field.  The BlockGF packet can be duplicated and appear multiple times in the stream.  Client writers should be aware that future version of PAR might support multiple BlockGF packets. 
-
+/\ /\ /\ TODO /\ /\ /\
