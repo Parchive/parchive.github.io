@@ -43,7 +43,7 @@ Some minor differences from Par 2.0 are:
 
 The "Big Picture":
 
-Par uses Linear Algebra to generate the redundant data and, after damage, to recover the original input data.  To understand its operation, you should be familiar with vectors, matrices, etc.
+Par uses Linear Algebra to generate the redundant data and, after damage, to recover the original input data.  To understand how it works, you need to be familiar with vectors, matrices, etc.
 
 The calculation of redundant data starts with the input data being packaged into a set of vectors.  Those vectors are multiplied by the "code matrix" to generate vectors of redundant data.  Thus, an input vector "i" times the code matrix "C" generates a redundant vector "r".
 
@@ -77,7 +77,7 @@ The "Detailed Picture":
 
 Generating the recovery data starts with choosing a Galois Field and block size.  The Galois Field is usually chosen based on whatever is fastest for the computer's hardware.  For this example, I'll assume it fits in 2-bytes (16-bits).  The block size is the smallest unit for recovering data.  It is usually chosen to balance speed and storage overhead.  The block size must be a multiple of the size of the Galois Field.  For this example, I'll assume it is 2048 bytes, but in practice it can be much larger, often megabytes.
 
-Next, the input files are mapped onto a "single virtual file".  The single virtual file contains all the protected data and the mapping tell where each part of each input file is located in the single virtual file.  Any part of the single virtual file that doesn't correspond to part of an input file is assumed to be filled with zero bytes.  
+First, the input files are mapped onto a "single virtual file".  The single virtual file contains all the protected data and the mappings tell where each part of each input file is located in the single virtual file.  Any part of the single virtual file that doesn't correspond to part of an input file is assumed to be filled with zero bytes.  
 
 The single virtual input file is then broken into equal-sized blocks.  For the example, the blocks are each 2048 bytes long.  If the single virtual file is N blocks long, each of those N blocks can be seen as holding 1024 Galois Field values (each 2-byte in size).
 
@@ -89,7 +89,7 @@ Next, we choose the code matrix.  The code matrix has a column for each input bl
 
 Now, for each input vector, we make a recovery vector by multiplying the input vector with the code matrix.  There is only one code matrix; the code matrix is the same for every pair of vectors.  Since there is one recovery vector for each input vector, there are 1024 recovery vectors.  The length of the recovery vectors is determine by how many recovery blocks we want.  
 
-The next step reorganizes the recovery vectors into recovery blocks.  It is basically the inverse of the step that reorganized the input blocks into input vectors.  If we want R recovery blocks, the 1024 recovery vectors of length R become R blocks with 1024 Galois Field values.  The i-th element in each vector goes into the i-th block; the j-th vector is used to make the j-th value in each block.
+The next step reorganizes the recovery vectors into recovery blocks.  It is basically the inverse of the step that reorganized the input blocks into input vectors.  If we want R recovery blocks, the 1024 recovery vectors of length R become R recovery blocks with 1024 Galois Field values.  The i-th element in each vector goes into the i-th recovery block; the j-th vector is used to make the j-th value in each recovery block.
 
 The recovery blocks are stored in a Par 3.0 file or multiple PAR 3.0 files.  The input blocks can be stored in their original files or put in Par 3.0 file(s).  The PAR 3.0 files contain a checksum for every input and recovery block.  After the files are stored or transmitted, the checksums are used to determine which blocks are damaged.
 
@@ -102,7 +102,7 @@ File Format Basics:
 
 The PAR 3.0 file itself is made of packets - self-contained parts with their own checksum. This design prevents damage to one part of the file from making the whole file unusable. 
 
-Packets have a type and each type of packet serves a different purpose.  One describes the matrix.  Another contains the checksums of input blocks.  Yet another contains a recovery block.  There are many other types.
+Packets have a type and each type of packet serves a different purpose.  One type describes the code matrix.  Another contains the checksums of input blocks.  Yet another contains a recovery block.  There are many other types.
 
 A PAR 3.0 file is only required to contain 1 specific packet - the packet that identifies the client that created the file. This way, if clients are creating files that don't match the specification in some way, they can be tracked down.
 
@@ -114,7 +114,7 @@ Conventions:
 
 There are a number of conventions used in the design of this specification.
 
-The data is 8-byte aligned. That is, every field starts on an index in the file which is congruent to zero, modulus 8. (That is, address % 8 == 0) This is because some memory systems function faster if 64-bit quantities are 8-byte aligned. It should be noted that a file could be corrupted (bytes inserted or deleted) to throw off the alignment. 
+The data is 8-byte aligned. That is, every field starts on an index in the file which is congruent to zero, modulus 8. (That is, address % 8 == 0) This is because some memory systems function faster if 64-bit quantities are 8-byte aligned.  Note that a file could be corrupted (bytes inserted or deleted) and thrown off the alignment. 
 
 All integers in this version of the spec are integers of 4, 8, or 16 bytes in length.
 
@@ -124,7 +124,7 @@ Strings are not null-terminated. This is to prevent hackers from using stack-ove
 
 The lengths of arrays and strings are often implicit. For example, if a region is known to be 32 bytes and that region contains an 8-byte integer and a string, then the string is known to take up 24 bytes. The string is then at least 17 bytes in length, since the 24 bytes contains 0 to 7 bytes of '\0' padding at the end.
 
-All strings are UTF-8.  Warning for OSX/MacOS clients: Unicode has multiple ways to encode the same string.  An e with an accent mark can be encoded as a single character (U+00e9) or two characters, one for the e (U+0065) and one for the accent mark (U+0301).  Par 3.0 does not require a particular encoding.  Forcing a particular encoding is called "normalization" in the Unicode vocabulary.  Most file systems do not normalize filenames and just treat the UTF-8 as a sequence of bytes.  Par 3.0 follows their practice.  However, HFS+ was Apple's default filesystem from 1998 to 2017 and it normalizes every filename.  Thus, if a Par client writes a file with a UTF-8 filename, the HFS+ file system may change the filename.  Clients for OSX/MacOS should be aware of this possibility.  Apple's current default filesystem, APFS, does not do normalization.  
+All strings are UTF-8.  Writers of OSX/MacOS clients must take special care!  Unicode has multiple ways to encode the same string.  An e with an accent mark can be encoded as a single character (U+00e9) or two characters, one for the e (U+0065) and one for the accent mark (U+0301).  Par 3.0 does not require a particular encoding.  Forcing a particular encoding is called "normalization" in the Unicode vocabulary.  Most file systems do not normalize filenames and just treat the UTF-8 as a sequence of bytes.  Par 3.0 follows their practice.  However, HFS+ was Apple's default filesystem from 1998 to 2017 and it normalizes every filename.  Thus, if a Par client writes a file with a UTF-8 filename, the HFS+ file system may change the filename.  Clients for OSX/MacOS should be aware of this possibility.  Apple's current default filesystem, APFS, does not do normalization.  
 
 The lengths of files and locations in files are determined by 16-byte integers. 
 (Hard drive size doubles every 1.5 years and is expected to exceed 2^64 bytes before 2040.)  It is acceptable for clients to not support files (including the single virtual file) that are larger than 2^64.  Clients that do not support large files must inform the user if they encounter a PAR file containing too large a file.
@@ -184,18 +184,18 @@ The creator packet has a type value of "PAR 3.0\0Matrix\0\0" (ASCII). The packet
 Table: Single Virtual File Packet Body Contents
 Length (bytes)	Type	Description
 8	8-byte uint	The size of the Galois field in bytes.
-?*8	?-byte GF	The generator of the Galois field.
+?*8	?-byte GF	The generator of the Galois field without leading 1.
 8	8-byte uint	block size in bytes
 16      K12 hash        Stream ID of parent stream, or all zeros.
 16	16-byte uint	Length of single virtual file in parent stream, or all zeros.
 
-The generator is an element of the Galois field, written in little-endian format and padded with 0 to 7 zero bytes afterwards.  Thus, if the Galois field had a size of 2-bytes and a generator of 0x0001100B, the first two bytes would hold the generator in little-endian format and the next 6 bytes would be zeroes.
+The generator is an element of the Galois field, written in little-endian format and padded with 0 to 7 zero bytes afterwards.  Thus, if the Galois field had a size of 2-bytes and a generator of 0x0001100B, the first two bytes would hold the value 0x100B in little-endian format and the next 6 bytes would be zeroes.
 
 A client must support every possible Galois field. 
 
 Clients are expected to optimize performance for specific Galois fields.  Some likely targets for optimization are:
 
-Table: Required Supported Galois Fields
+Table: Common Galois Fields
 Size (bits)    Generator (hexidecimal)
 8              0x11B 
 16             0x1100B
@@ -216,61 +216,83 @@ The block size must be a multiple of 8.  It must also be a multiple of the Galoi
 
 The "parent stream" concept will mostly be used for incremental backups.  In this use case, there is an original backup of all files and then a incremental backup containing changes since the original.  The incremental backup is a different stream, but might want to reuse data in the single virtual file of the original backup.  By setting the final two fields, the incremental backup indicates that the first N bytes of its single virtual files are the same as the parent.  If the parent fields are set, the blocksize and Galois field must be the same as the parent's.  
 
-NOTE: The "parent stream" concept only NOT only copies the data in the single virtual file, but also the file indices, input file mapping, and input file meta data.  All packets from the parent stream should be processed as if part of the "child stream", with the exceptions of the Input Set Data Integrity packet and Input Set Metadata Integrity packet.
+NOTE: The "parent stream" concept only NOT only copies the data in the single virtual file, but also the file indices, input file mapping, and input file meta data.  All packets from the parent stream should be processed as if part of the "child stream", with the exception of the Root packet.
 
 For any Stream ID, there should be only 1 Single Virtual File Packet.  (The same packet may be repeated multiple times.)
 
 
-Matrix Rows packet
+Matrix Packets
 
-This packet describes some rows of the matrix.  It either contains the elements in those rows or describes how to compute them.
+There are currently 3 different types of matrix packets.  More than one can be used at the same time.  For example, a sparse matrix packet could be used to generate most recovery data and a Cauchy matrix packet to generate a few pieces of recovery data.  
 
-The matrix rows packet has a type value of "PAR 3.0\0Rows\0\0\0\0" (ASCII). The packet's body contains the following:
+Cauchy Matrix Packet
+
+This packet describes a Cauchy matrix.  
+
+The matrix rows packet has a type value of "PAR 3.0\0Cauchy\0\0" (ASCII). The packet's body contains the following:
 
 Table: Matrix Rows Packet Body Contents
 Length (bytes)	Type	Description
 16	K12 hash	The checksum from the packet header of the Single Virtual File Packet.
+8	unsigned int	Number of zero columns
 8	unsigned int	hint for number of rows 
-8	unsigned int	Method 
-?*8	?	 Additional data
 
 The hint to the number of rows is used in single-pass situations to allocate buffers.  If the number of rows is unknown, the hint is set to zero.
 
-PAR 3.0 supports 3 methods of generating elements of the matrix.  One method generates Cauchy matrices, used by Reed-Solomon.  A second method generates sparse random matrices, which are faster than Reed-Solomon and almost as good.  The third method explicitly lists the elements, which is how LDPC and all other methods are implemented. 
+To generate the element at zero-indexed row R and zero-indexed column C, the first check is if C is less than the number of zero columns.  If it is, then the element is zero.
 
-For Cauchy matrices, the "Method" field is set to 0.  The "Additional data" field contains:
+Otherwise, the element at zero-indexed row R and zero-indexed column C depends on R and C.  Specifically, it is the multiplicative inverse of x_R-y_C, where x_R is the Galois field element with the same bit pattern as twos-complement R+1 and y_C is the Galois field element associated with MAX-C where maximum unsigned twos-complement values with the same size as the Galois field.  (NOTE: In binary, MAX contains all ones.)
 
-Table: Matrix Rows Packet Body Contents --- Additional Data Cauchy
+
+Sparse Random Matrix Packet
+
+This packet describes a sparse random matrix.  It is faster to calculate recovery blocks with a sparse matrix, if the user is willing to accept a slightly higher chance of not recoverying from extreme cases.
+
+To be specific, consider a sparse random matrix with N recovery blocks such that the matrix has at least N*ln(N) non-zero elements.  This matrix is able to recover from almost all cases where N - C input blocks are lost.  The probability of failing for a given C is propotional to 1/(g^C) where g is the number of unique the Galois field values.  Thus, for a 1-byte Galois field with 256 values, the probably that recovery fails with N-3 lost input blocks, is 1/(256^3) or less than one-in-a-million.  See "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl
+
+Recall that for any matrix, N+1 lost input blocks can never be recovered.  Using a sparse matrix, rather than a Cauchy, can be upto N/ln(N) times faster.  Users that can store/send 6 more recovery blocks can get much faster performance with less than a 1-in-a-trillion increase in failure to recover.
+
+The speed up and math work better for large numbers of recovery blocks.  When there are few recovery blocks, the Cauchy matrix is strongly recommended.
+
+The matrix rows packet has a type value of "PAR 3.0\0Sparse\0\0" (ASCII). The packet's body contains the following:
+
+Table: Matrix Rows Packet Body Contents
 Length (bytes)	Type	Description
-8	unsigned int	Number of zero columns
-
-For an element at zero-indexed row I and zero-indexed column J, the value is zero if I is less than the number of zero columns.  Otherwise, the element is the multiplicative inverse of x_I-y_I, where x_I is the Galois field element with the same bit pattern as twos-complement I+1 and y_J is the Galois field element associated with MAX-J where maximum unsigned twos-complement values with the same size as the Galois field.  (NOTE: In binary, MAX contains all ones.)
-
-For sparse random matrices, the packet's "Method" field is set to 1.  The "additional data" field contains:
-
-Table: Matrix Rows Packet Body Contents --- Additional Data Sparse
-Length (bytes)	Type	Description
-8	unsigned int	Number of zero columns
-8	unsigned int    lower bits of seed
-8       unsigned int	probability (encoded as an unsigned int) of a non-zero element
-
-The sparse random matrix uses the PCG-XSL-RR pseudorandom number generator.  The generator has 128-bits of state and generates 64-bit pseudorandom numbers.  For each row of the matrix, the 128-bit seed is initialized with the higher 64-bits equal to the zero-indexed column of the matrix and the lower 64-bits equal to the seed value from the packet.
+16	K12 hash	The checksum from the packet header of the Single Virtual File Packet.
+8	unsigned int	number of zero columns
+8	unsigned int	number of rows 
+8	unsigned int    lower bits of random number generator seed
+8       unsigned int	number of non-zero elements per column
 
 If the zero-indexed column number is less than the number of zero columns, then the column only contains zero Galois field values.
 
-Otherwise, each column's elements are generated sequentially.  If the pseudorandom number from the generator is, when treated as an unsigned 64-bit integer, is less than or equal to the probability, which is also treated as an unsigned integer, then the value is non-zero.  Non-zero elements are generated using pseudorandom numbers.  The lower bytes are assigned pseudorandom numbers before upper bytes.  If the element is too small to use a complete pseudorandom number, the lower bytes of the pseudorandom number are used and the upper bytes of the pseudorandom number are discarded.  If this random value turns out to be equal to zero, another random element should be generated.
+Otherwise, each column's non-zero elements are generated and then shuffled into position.  The following paragraphs describe the details.
 
-!!!!! Can we guarantee a certain number of non-zero elements in the column?
+First, the start of the column is filled with zeroes.  If the column has N elements (that is, the number of rows is N) and will have K non-zero elements, then the first N-K elements are set to zero.
 
-This method creates a sparse matrix, where elements are non-zero with a given probability.  If there are N good recovery blocks and the probability is greater than log_e(N)/N, then, as N gets large, it is highly likely that recovery is possible.  So, if N=1000, then the probability needs to be at least 6.9%.   This property is a function of invertible matrices using 1-bit Galois fields, so it is even strong for the larger Galois fields used by PAR 3.0.
+Second, the pseudorandom number generator (PNRG) is initialized.  The generator is the PCG-XSL-RR, which has 128-bits of state and generates 64-bit pseudorandom numbers.  For each column of the matrix, the 128-bit seed is initialized with the higher 64-bits equal to the zero-indexed column of the matrix and the lower 64-bits equal to the seed value from the packet.
 
-For explicit matrices, the packet's "Method" field is set to 2.  The "additional data" field contains:
+Third, non-zero elements are placed at the end of the column.  If there are K non-zero elements in a column, random non-zero Galois field values are placed in zero-indexed locations N-K-1 through N-1 of the column.  Random Galois field values are generated by filling them from the least-significant bytes to most significant using 64-bit values generated from the PRNG.  If the random value does not use all the bits of a value from the PRNG, the unused bits are discarded.  Since we want non-zero random values, if a zero is randomly generated, it is immediately discarded and whole new random values are generated.  Only when a non-zero value is generated do we move to the next location in the column.  This continues until the last K locations in the column have non-zero values.  
 
-Table: Matrix Rows Packet Body Contents --- Additional Data Sparse
+The last step in generating a random column is shuffling the non-zero values into their final location.  This is the usual O(N) shuffling algorithm, which swaps values into random locations.  (Wikipedia calls it "Fisher-Yates", but Durstenfeld deserves credit.)  The first random location is in the range 0 to N-K-1 and is generated by taking a 64-bit unsigned value from the PRNG and using modulus N-K.  The first non-random value, which is at location N-K-1, is then swapped with the value in the first random location.  The second random location is in the range 0 to N-K.  The second random non-zero value, at location N-K, is then swapped.  The third random location is in the range 0 to N-K+1.  Etc.  The final random non-zero value will be swapped to any location in the column.
+
+The final result is a column with K random non-zero values in random locations.  Thus, data from each file will be incorporated into K different recovery blocks.  
+
+
+Explicit Matrix Packet
+
+This packet describes any single-row matrix.  The values of the elements are explicitly contained in the packet, and not computed like the other matrix packets.  It is intended to be used for LPDC, such as Tornado Codes.
+
+The matrix rows packet has a type value of "PAR 3.0\0Explicit" (ASCII). The packet's body contains the following:
+
+Table: Explicit Matrix Packet Body Contents
 Length (bytes)	Type	Description
-?*?	{8-byte unsigned int, GF value, padding}	Number of zeros, element, 0 to 7 bytes of padding
+16	K12 hash	The checksum from the packet header of the Single Virtual File Packet.
+?*?	{8-byte unsigned int, GF value, padding}	zero-indexed column location, value, 0 to 7 bytes of padding
 
-This matrix contains just one row.  For each non-zero value, there is a triple.  The first part of the triple is how many columns of zero values preceed the non-zero value.  The part of the triple is the Galois field value of the element.  The last part of the triple is 0 to 7 bytes of padding, to make the next triple (or the end of the packet) 8-byte aligned.  
+The matrix contains just one row.  For each non-zero value, there is a triple.  The first value is the zero-indexed location of non-zero value.  The second part of the triple is the Galois field value of the element.  The last part of the triple is 0 to 7 bytes of padding, to make the next triple (or the end of the packet) 8-byte aligned.
+
+The triples are sorted by the column locations, from lowest to highest.
 
 
 Data Packet
