@@ -6,6 +6,21 @@ Started January 16th, 2020
 New Design, July 29th, 2021
 Updated based on feedback November 16th, 2021  (dropped streaming, added chunks)
 
+\/ \/ \/ TODO \/ \/ \/
+
+License.  --- copyright, "service mark", derivatives
+
+? Drop owner/groupid 
+? small files inside the File structure?  ... nah, do tar-then-par
+? sparse files?
+? special Galoid Field that represents XOR ?
+? should an empty filename mean "this file"?
+? allow chunks to have a checksum and still not be mapped?  This could be achieved by reserving block index 2^64-1 for the "unmapped block".
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+
 
 Based on Parity Volume Set Specification 2.0 [2003-05-11] by Michael Nahas with ideas from Peter Clements, Paul Nettle, and Ryan Gallagher
 Based on Parity Volume Set Specification 1.0 [2001-10-14] by Stefan Wehlus and others.
@@ -40,7 +55,7 @@ Major differences from Parchive 2.0 are:
 * support "incremental backups"
 * support files that work both as a Par3 file and another type.  For example, putting recovery data inside a ZIP, ISO 9600 disk image, or other file.
 * support for storing data inside a Par3 file (this was optional in Par 2.0)
-* support any Galois Field that is a multiple of 2^8
+* support any Galois field that is a multiple of 2^8
 * support any linear code (Reed-Solomon, LDPC, random sparse matrix, etc.)
 * support for more than 2^16 blocks
 * support deduplication, where the same block appears in multiple files
@@ -82,9 +97,9 @@ i_bad = C_good,bad^-1*(r_good - C_good,good*i_good)
 
 Here, "^-1" indicates the left inverse of the matrix.  Since the redundant data was made by multiplying the input data by the code matrix, the inverse of the code matrix allows us to recreate the missing input data from the redundant data.  Not every matrix has a left inverse.  When the left inverse does not exist, we cannot recover the input data.  A left inverse never exists when the matrix has more columns than rows, which means we cannot recover if there are more bad input blocks than good redundant blocks.
 
-Unlike in your Linear Algebra class, the elements of the vectors and matrices are not real numbers or complex numbers, but elements of a "Galois Field".  Like the computer's integers (a.k.a., the integers modulo 2^N), Galois Fields come in various sizes like 8-bits, 16-bits, etc. and support operations called addition, subtraction, multiplication, and division.  Unlike the computer's integers, "division" exactly inverts "multiplication" for every value.  (Computer integers can overflow during multiplication, preventing division from inverting the multiplication.)  That perfect inversion allows the Linear Algebra to work.
+Unlike in your Linear Algebra class, the elements of the vectors and matrices are not real numbers or complex numbers, but elements of a "Galois field".  Like the computer's integers (a.k.a., the integers modulo 2^N), Galois fields come in various sizes like 8-bits, 16-bits, etc. and support operations called addition, subtraction, multiplication, and division.  Unlike the computer's integers, "division" exactly inverts "multiplication" for every value.  (Computer integers can overflow during multiplication, preventing division from inverting the multiplication.)  That perfect inversion allows the Linear Algebra to work.
 
-Parchive 3.0 improves on Parchive 2.0 by supporting multiple Galois Fields and by supporting any code matrix.  This means Parchive 3.0 supports a large set of error correcting codes known as "linear codes".  These include Reed-Solomon and many Low Density Parity Check (LDPC) codes.  This flexibility allows Parchive 3.0 clients to choose between speed and the number of errors that can be recovered.  It also allows Parchive 3.0 to support any new linear code.
+Parchive 3.0 improves on Parchive 2.0 by supporting multiple Galois fields and by supporting any code matrix.  This means Parchive 3.0 supports a large set of error correcting codes known as "linear codes".  These include Reed-Solomon and many Low Density Parity Check (LDPC) codes.  This flexibility allows Parchive 3.0 clients to choose between speed and the number of errors that can be recovered.  It also allows Parchive 3.0 to support any new linear code.
 
 
 
@@ -92,11 +107,11 @@ Specifics of Computation
 
 This section goes into the details of how redundant data is computed and how recovery proceeds.  That is, how the mathematical vectors used in the previous section are related to actual bytes in a file.
 
-Generating the recovery data starts with choosing a Galois Field and block size.  The Galois Field is usually chosen based on whatever is fastest for the computer's hardware.  For this example, it fits in 2-bytes (16-bits).  The block size is the smallest unit for recovering data.  It is usually chosen to match the transmission/storage technology or to limit overhead.  The block size must be a multiple of the size of the Galois Field.  For this example, it will be 2048 bytes, but in practice it can be much larger, even gigabytes.
+Generating the recovery data starts with choosing a Galois field and block size.  The Galois field is usually chosen based on whatever is fastest for the computer's hardware.  For this example, it fits in 2-bytes (16-bits).  The block size is the smallest unit for recovering data.  It is usually chosen to match the transmission/storage technology or to limit overhead.  The block size must be a multiple of the size of the Galois field.  For this example, it will be 2048 bytes, but in practice it can be much larger, even gigabytes.
 
-First, all of the input data is packed into equal-sized blocks.  There are many steps to this.  What follows is a list of the operations, but the specifics of each will be described in detail later.  A client can do "deduplication" and break the files into variable-length chunks that are each unique.  Or a client can skip this step and make each file its own chunk.  The chunks are then chopped into equal-sized block.  If the end of a chunk doesn't completely fill a block, it can be packed with the ends of other chunks into a single block.  Lastly, any incompletely filled block is filled with zero bytes.  By the end of these operations, the input data is converted to equal-sized blocks.  For this example, the input data is broken up into 100 blocks, each 2048 bytes long.  Each of those 100 blocks can be seen as holding 1024 Galois Field values (each 2-byte in size).  
+First, all of the input data is packed into equal-sized blocks.  There are many steps to this.  What follows is a list of the operations, but the specifics of each will be described in detail later.  A client can do "deduplication" and break the files into variable-length chunks that are each unique.  Or a client can skip this step and make each file its own chunk.  The chunks are then chopped into equal-sized block.  If the end of a chunk doesn't completely fill a block, it can be packed with the ends of other chunks into a single block.  Lastly, any incompletely filled block is filled with zero bytes.  By the end of these operations, the input data is converted to equal-sized blocks.  For this example, the input data is broken up into 100 blocks, each 2048 bytes long.  Each of those 100 blocks can be seen as holding 1024 Galois field values (each 2-byte in size).  
 
-The next step reorganizes the blocks into vectors.  The 100 blocks containing 1024 Galois Field values becomes 1024 vectors containing 100 Galois Field values.  This is done the obvious way: swapping rows for columns and columns for rows.  The values in the i-th block become the i-th element of each vector; the j-th value in each block are used to make the j-th vector.   
+The next step reorganizes the blocks into vectors.  The 100 blocks containing 1024 Galois field values becomes 1024 vectors containing 100 Galois field values.  This is done the obvious way: swapping rows for columns and columns for rows.  The values in the i-th block become the i-th element of each vector; the j-th value in each block are used to make the j-th vector.   
 
 Next, the user chooses the numbers of recovery blocks that they want. The number of recovery blocks determines the maximum number of damaged/missing input blocks that we can recover.  Often the number of recovery blocks is 5% or 10% of the number of input blocks. 
 
@@ -104,7 +119,7 @@ Next, the user chooses a code matrix.  The code matrix has a column for each inp
 
 Next, for each input vector, we make a recovery vector by multiplying the input vector with the code matrix.  There is only one code matrix; the code matrix is the same for every pair of vectors.  Since there is one recovery vector for each input vector, there are 1024 recovery vectors.  The length of each recovery vector is equal to how many recovery blocks we want.  
 
-The next step reorganizes the recovery vectors into recovery blocks.  It is basically the inverse of the step that reorganized the input blocks into input vectors.  If we want 5 recovery blocks, the 1024 recovery vectors of length 5 become 5 recovery blocks with 1024 Galois Field values.  The i-th element in each vector goes into the i-th recovery block; the j-th vector is used to make the j-th value in each recovery block.  Notice that the recovery blocks are the same size as the input blocks.  Each has 1024 Galois Field values and each value takes 2-bytes, so the recovery blocks are each 2048 bytes.
+The next step reorganizes the recovery vectors into recovery blocks.  It is basically the inverse of the step that reorganized the input blocks into input vectors.  If we want 5 recovery blocks, the 1024 recovery vectors of length 5 become 5 recovery blocks with 1024 Galois field values.  The i-th element in each vector goes into the i-th recovery block; the j-th vector is used to make the j-th value in each recovery block.  Notice that the recovery blocks are the same size as the input blocks.  Each has 1024 Galois field values and each value takes 2-bytes, so the recovery blocks are each 2048 bytes.
 
 The recovery blocks are stored in the Recovery packets (specified below) and written to a Par3 file.  The input blocks can be stored in their original files or stored in Data packets (specified below) and put in the Par3 file(s).   The Par3 file(s) contain a checksum for every input and recovery block.  After the Par3 file(s) are stored or transmitted, the checksums are used to determine which blocks are damaged.
 
@@ -225,7 +240,7 @@ Length (bytes)	Type	Description
 
 Start packet
 
-This packet specifies the Galois Field and block size.  If the set of input files shares data with a previous set, this packet holds the InputSetID of the "parent" input set.
+This packet specifies the Galois field and block size.  If the set of input files shares data with a previous set, this packet holds the InputSetID of the "parent" input set.
 
 The Start packet has a type value of "PAR STA\0" (ASCII). The packet's body contains the following:
 
@@ -238,11 +253,11 @@ Length (bytes)	Type	Description
 ?	?-byte GF	The generator of the Galois field without its leading 1.
 
 
-The first field is used in the case of an "incremental backup".  If this input set is an incremental backup of another input set, the field is set to the InputSetID of the parent.  Otherwise, the field is all zeros.  If the field is set, all the packets with the parent's InputSetID (and any of its ancestors) are considered packets with this packet's InputSetID with the following conditions.  First, the ancestors' Root packets are not used to determine the input set.  Second, the ancestors' Start packets must have the same Galois Field and block-size as this packet.  
+The first field is used in the case of an "incremental backup".  If this input set is an incremental backup of another input set, the field is set to the InputSetID of the parent.  Otherwise, the field is all zeros.  If the field is set, all the packets with the parent's InputSetID (and any of its ancestors) are considered packets with this packet's InputSetID with the following conditions.  First, the ancestors' Root packets are not used to determine the input set.  Second, the ancestors' Start packets must have the same Galois field and block-size as this packet.  
 
 The second field is the checksum of the parent's Root packet, or a random number if there is no parent.  The checksum of the parent's Root packet guarantees that the parent's input set was complete specified before this input set's was started.  If there is no parent, the value is a global unique number. The globally unique number ensures the InputSetID (explained below) is unique.  
 
-NOTE: One way to generate a globally unique number is to use the fingerprint hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.  (Be careful that the machine identifier is actually unique!  Many computers share the same IP Address in one of the private address ranges.)  Another method for generating a globally unique number is, if the input set's data is known ahead of time, is to use a fingerprint hash of the block size, Galois Field parameters, and all the files' contents.
+NOTE: One way to generate a globally unique number is to use the fingerprint hash of the triple consisting of: a machine identifier, a process identifier, and a high-resolution timestamp.  (Be careful that the machine identifier is actually unique!  Many computers share the same IP Address in one of the private address ranges.)  Another method for generating a globally unique number is, if the input set's data is known ahead of time, is to use a fingerprint hash of the block size, Galois field parameters, and all the files' contents.
 
 The block size determines the length of input blocks and recovery blocks.  They are the same size.  The block size must be a multiple of the Galois field size.  If there is a parent InputSetID, the block size must be the same as the parent's. 
 
@@ -251,11 +266,6 @@ The Galois field size says how many bytes are used to hold a Galois field elemen
 The Galois field's generator is written in little-endian format without its leading 1.  Thus, if the Galois field had a size of 2-bytes and a generator of 0x1100B, the entry's first two bytes would hold the value 0x100B in little-endian format.  Notice that the packet does not store the leading 1 that is present in the mathematical notation of the generator.  There is more on Galois fields later in this specification.  
 
 
-\/ \/ \/ TODO \/ \/ \/
-
-If GF length = 0, then it's all XOR.  But what does that do to Matrix packets?
-
-/\ /\ /\ TODO /\ /\ /\
 
 There is only one Start packet for an InputSetID.  There can be multiple identical copies of this packet in the file.  (This is true for all packets.)
 
@@ -294,14 +304,7 @@ The index for the first input block for which there is a checksum.
 
 The tuples contain a rolling hash (CRC32) and the lower 12 bytes of the fingerprint hash (K12 hash) for each block in a sequence of input blocks.  Thus, the first pair of checksums is for a block that starts at the index times the block size and goes for block size bytes.  The second pair of check sums is for the following block.  Etc.
 
-Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the right block (because the rolling hash is less trustworthy).
-
-
-\/ \/ \/ TODO \/ \/ \/
-
-Add comment on how to avoid slowdown when the rolling hash matches repeated data, but the fingerprint hash does not.  The client will make almost no progress, going 1 byte at a time.
-
-/\ /\ /\ TODO /\ /\ /\
+Note: The rolling hash is used to locate a block when data might have shifted location.  The fingerprint hash is used to confirm that the block is the right block (because the rolling hash is less trustworthy).  There is more about the rolling hash in the section "Rolling Hash" below.
 
 
 
@@ -334,16 +337,22 @@ The hint to the number of recovery blocks is used in single-pass situations to a
 
 Otherwise, the matrix's element for input block I and recovery block R depends on I and R.  (NOTE: This specification uses zero-index vectors, so I and R start at 0.)   Specifically, it is the multiplicative inverse of x_I-y_R, where x_I is the Galois field element with the same bit pattern as binary integer I+1 and y_R is the Galois field element associated with the binary integer MAX-R, where MAX is the maximum binary integer value with the same size as the Galois field.  (NOTE: In binary, MAX contains all ones.)  To be clear, the multiplicative inverse and subtraction x_I-y_R are done using Galois field arithmetic.  The I+1 addition and MAX-R subtraction is done using native integer arithmetic.
 
+Mathematically, that is: inv( (I+1) ^ (~0-R) ) = inv( (-2-I) ^ R ) where the GF element fits in an twos-compliment integer, "inv()" is the Galois field's multiplicative inverse, and "^" denotes XOR.
+
 
 Sparse Random Matrix Packet
 
 This packet describes a sparse random matrix.  It is faster to calculate recovery blocks with a sparse matrix, if the user is willing to accept a slightly higher chance of not recovering from extreme cases.
 
-For N input blocks, the sparse random matrix will usually have N*ln(N) non-zero elements.  This matrix is able to recover from almost all cases where N - C input blocks are lost, for some small constant C.  The probability of failing for a given C is proportional to 1/(g^C) where g is the number of unique the Galois field values.  Thus, for a 1-byte Galois field with 256 values, the probably that recovery fails with N-3 lost input blocks, is 1/(256^3) or less than one-in-a-million.  See "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl.
+A sparse random NxN matrix with at least N*ln(N) non-zero elements has rank N-K for some small K.  When ln(N)>3 or, equivalently N>20, large values of K are very very rare.  Invertible matrices have rank N, so these sparse random matrices are very very close to being invertible.
 
-Recall that for any matrix, N+1 lost input blocks can never be recovered.  Using a sparse matrix, rather than a Cauchy, can be up to N/ln(N) times faster.  Users that can store/send 6 additional recovery blocks can get much faster performance with less than a 1-in-a-trillion increase in failure to recover.
+To be specific about K and the rank, the probability for the rank to be less than N-K for a given K is proportional to 1/(g^K) where g is the number of unique Galois field values.  Thus, if matrix's elements are from a 1-byte Galois field with 256 values, the probably that the rank is less than N-3 is proportional to 1/(256^3) or less than one-in-a-million.  For details, see "The Rank of Sparse Random Matrices over Finite Fields" by Blomer, Karp, and Welzl.
 
-The speed and probability of recovery are better when the number of recovery blocks is large.  When there are few recovery blocks, the Cauchy matrix is strongly recommended.
+Thus, if the recovery submatrix (called "C_good,bad" earlier) is NxN with at least N*ln(N) randomly non-zero elements and ln(N)>3 (or, equivalently, N>20), we can recovery almost all the input blocks.  Specifically, N-K of them.  And, if we augment the random matrix with K recovery blocks generated from a Cauchy matrix, which recover any missing input blocks, we are very very likely to recover all the input blocks.  
+
+Given this, how many random recovery blocks and Cauchy recovery blocks should be generated?  If there are B input blocks and we want them to survive a maximum perfectly-random failure rate F and use contant K, then the number of sparse random recovery blocks should be B*F/(1-F) and the number of Cauchy recovery blocks should be K/(1-F).  The probability of a non-zero element in the sparse random matrix must be at least ln(N)/N, where N=B*F.  Please keep in mind that the math only works when ln(N)>3 or, eqivalently, N>20.  WARNING: the math in this paragraph was done using expected values, not proper probability distributions, and may under estimate the probability of some events, such as losing multiple Cauchy recovery blocks, which could affect the probability of recovery.  
+
+If it feels wrong to increase the probability of failure, recall that for any matrix, it must fail if B-1 or fewer input and recovery blocks arrive.  Using a sparse matrix, rather than a Cauchy, can be up to N/ln(N) times faster.  Users that can store/send a few additional recovery blocks can get much faster performance with a miniscule increase in failure to recover.
 
 The Sparse Random Matrix packet has a type value of "PAR SPA\0" (ASCII). The packet's body contains the following:
 
@@ -355,24 +364,21 @@ Length (bytes)	Type	Description
 8       unsigned int	number of non-zero elements per input block
 8	unsigned int    random number generator seed
 
-The recovery data is computed for a range of input blocks.  (See Cauchy Matrix packet.)  Essentially, matrix's elements for all input blocks outside the range is 0.
+The recovery data is computed for a range of input blocks.  (See Cauchy Matrix packet.)  The matrix's elements for all input blocks outside the range is 0.
 
 Otherwise, each input block's non-zero elements are generated and then shuffled into position.  The following paragraphs describe the details.
 
-\/ \/ \/ TODO \/ \/ \/
+1. Allocate a matrix with R rows and C columns, where R is the number of input blocks and C is the number of recovery blocks
 
-1. allocate a matrix with R rows and C columns, where R is the number of input blocks and C is the number of recovery blocks
+2. Go row-by-row from low index to high, generating each row as follows:
 
-2. generate K random non-zero Galois Field values at the start of each row of the matrix.  Fill the rest of each row with zeroes.  K will usually equal log(R), the log of the number of input blocks.
+2.a. Fill the row with C-X zeroes and X random Galois field values.  The zeroes go in the low indexes; the random values in the higher ones.  The method for generating the random Galois field values is below.  The order of requests to the random number generator is important: the values should be assigned from the lowest column index to the greatest.  
 
-3. shuffle the elements in each row.  The random non-zero values will then be evenly distributed.
+2.b. Shuffle the row.  The random non-zero values will then be evenly distributed.  The shuffle algorithm is the "inside-out" version of the "Fisher-Yates shuffle".  Skip the shuffle for the first C-X elements, because they are all zeroes.  The first non-zero value is at index C-X and is swapped with a random location in the range 0 to C-X.  The next non-zero value is at index C-X+1 and is swapped with a random location in the range 0 to C-X+1.  Continue until all the non-zero elements are shuffled.  The random locations are generated by treating a random 64-bit value as an unsigned integer and using modulus (the % operator in C, C++, Java, python, etc.).  Be careful that the value is treated as an unsigned value, and not a signed one. 
 
-?. require clients to estimate the probability of recovery, so that users know what they're getting
+How to generate a B-byte random non-zero Galois field value:  If B is greater than 8-bytes, the 64-bit values from the random number generator are put into the Galois field value from lowest byte-index to highest.  For the last (B modulo 8) bytes, the lowest bits of the random 64-bit value are used.  This is the same as if the random value was taken modulo 2^(8*B).  Lastly, if the random value was zero, it should be ignored and completely regenerated.  
 
-/\ /\ /\ TODO /\ /\ /\
-
-The final result is a column with K random non-zero values in random locations.  This will mean data from from each input block will be incorporated into K different recovery blocks.  
-
+The final result is a matrix where every row has X randomly-located non-zero random values.  This will mean data from from each input block will be incorporated into X different recovery blocks.  
 
 
 
@@ -386,7 +392,7 @@ Table: Explicit Matrix Packet Body Contents
 Length (bytes)	Type	Description
 ?*(8+?)	{8-byte unsigned int, GF value}	zero-indexed input block, Galois field value
 
-The matrix contains values for a single row of the code matrix.  There will be only one recovery block associated with this matrix.  For each input block that is used to calculate the recovery block, there is a pair of the index of the input block and its Galois Field factor.  The pairs are in sorted order, with input block indices increasing from lowest to highest.  (Any indices not mentioned are assumed to have a factor of zero.)
+The matrix contains values for a single row of the code matrix.  There will be only one recovery block associated with this matrix.  For each input block that is used to calculate the recovery block, there is a pair of the index of the input block and its Galois field factor.  The pairs are in sorted order, with input block indices increasing from lowest to highest.  (Any indices not mentioned are assumed to have a factor of zero.)
 
 
 
@@ -435,11 +441,6 @@ The last field is sequence of chunk descriptions.  The input file is divided int
 
 The chunk description starts with the length of the chunk and a fingerprint hash of the chunk's entire contents.  If the chunk's contents is unknown and not protected by the recovery data, the fingerprint hash value is set to all zeroes.  (This is used with the "Par inside" feature described below.)  If the chunk's length is at least 1 block-size and the fingerprint hash is not zeroed, the next field holds the index of the first input block mapped to the chunk's data.  That first input block holds the first block-size of the chunk's data.  The rest of the chunk's data is mapped to the subsequent input blocks, except, should it exists, the final fraction of a block.  If the chunk's size is not a multiple of block-size and the fingerprint hash is not zeroed, the final 4 fields cover the "tail" of the file.  They are a rolling hash of the tail, a fingerprint hash of the tail, the index of the input block holding the tail's data, and the offset of the tail inside that block.  The tail must be completely contained by the single input block holding it.
 
-\/ \/ \/ TODO \/ \/ \/
-
-Do we want to support known contents that are not protected?  I had thought this could be done by using -1 as the input block indexes.  Of course, it could also be done by having matrix ignore those indices ... but that's harder.
-
-/\ /\ /\ TODO /\ /\ /\
 
 Note: The filename is a filename, not a path.  
 
@@ -452,6 +453,7 @@ Note: Simple clients will probably write Par3 files where each input file consis
 Note: Simple clients can put each "tail" of a chunk into its own input block with a zero offset.  More complex clients may pack multiple "tails" into the same input block.  Nonetheless, all clients MUST be able to decoded File packets where multiple tails are packed into the same input block and perform recovery.
 
 Note: Chunk descriptions can overlap input blocks without being identical.  Tails of files can overlap inside the same input block.  Neither of these cases is expected to be common, but they are allowed by the current version of the specification.
+
 
 
 
@@ -530,9 +532,9 @@ The metadata often contains security-related features: ownership of files, etc..
 
 In addition to the packet-specific information below, there is a separate section of this document devoted to security.  Client authors should follow it and investigate any common ways to hack their particular system.
 
-Parchive 3.0 supports metadata for 3 file systems: a generic UNIX file system, NTFS, and FAT.  This should provide coverage of most features on the most used operating systems: Linux, Windows, and MacOS.  Future versions of Parchive may include support for additional file systems.
+Parchive 3.0 supports metadata for 2 file systems: a generic UNIX file system and FAT/FAT32/exFAT.  Parchive 3.0 supports hard and symbolic links for NFTS file systems, but NTFS's complete file permissions were too complicated to include in version 3.0.  Future versions of Parchive may support them.   Clients on an NFTS file system that need to preserve more than FAT permissions and hard/symbolic links will need to use another program to preserve them.  
 
-The encoding client can write as many permissions as it chooses.  It can write both UNIX permissions for a file and also NTFS permissions for a file.  The decoding client can choose to ignore all file-system specific permissions.  If it chooses to support them, it should prefer the permissions for its current file system.  (That is, prefer the Par3 file's UNIX permissions when on a UNIX file system and NTFS permissions on an NTFS system.  Etc.)  If the permissions for the current file system are not in the Par3 file, the decoding client can attempt to translate the permissions in the Par3 file to the local system.  However, that should only be attempted with extreme caution, due to the potential for errors weakening security.
+The encoding client can write permissions as many file systems as chooses.  It can write none or write both UNIX permissions for a file and also FAT permissions for the same file.  The decoding client can choose to ignore all file-system specific permissions.  If it chooses to support them, it should prefer the permissions for its current file system.  (That is, prefer the Par3 file's UNIX permissions when on a UNIX file system and FAT permissions on an FAT system.)  If the permissions for the current file system are not in the Par3 file, the decoding client can attempt to translate the permissions in the Par3 file to the local system.  However, that should only be attempted with extreme caution, due to the potential for errors weakening security.
 
 
 Link Packet
@@ -596,18 +598,54 @@ The owner and group are also encoded as strings.  The decoding client gets to de
 
 All of the above attributes are for the the File, Directory, or Link whose packet hashes are at the end of the packet.  Thus, the same attributes can be applied to multiple files, directories, or links at the same time.  
 
-Note: On Linux with EXT4, the permissions of the symbolic link are ignored; the permissions of the target are always used.  On a MacOS and FreeBSD, symbolic links can have permissions different than their target.  For this reason, UNIX Permissions can contain hashes of Link packets.
+Note: On Linux with EXT4, the permissions of a symbolic link are ignored; the permissions of the target are always used.  On a MacOS and FreeBSD, symbolic links can have permissions different than their target.  For this reason, UNIX Permissions can contain hashes of Link packets.
 
 Note: Different UNIX systems have different limits on the size of xattrs.   Linux's interface, the Virtual File System (VFS), limits all xattr names to fitting in 64kB and each value to fitting in 64kB.  EXT4 limits everything to fitting in 4kB.  BTRFS limits everything to 16kB.  Some file systems have no limit.  The choice of supporting values of only 16kB in length is probably sufficient for most uses.
 
 
-
-\/ \/ \/ TODO \/ \/ \/
-
-NTFS Permissions Packet
 FAT Permissions Packet
 
-/\ /\ /\ TODO /\ /\ /\
+This packet holds the metadata from a FAT file system for one or more files and directories.  It is based on the exFAT specification.  It should capture all the user-visible details of that file system.  There are many vendor-specific modifications to the FAT system and this specification does not try to capture all of those details.  
+
+The FAT File packet has a type value of "PAR FAT\0" (ASCII). The packet's body contains the following:
+
+Table: UNIX File Packet Body Contents
+Length (bytes)	Type	Description
+1      bit field 	FileAttributes
+4      unsigned int	CreateTimestamp
+4      unsigned int	LastModifiedTimestamp
+4      unsigned int	LastAccessedTimestamp
+1      unsigned int	Create10msIncrement
+1      unsigned int	LastModified10msIncrement
+1      signed int	CreateUtcOffset
+1      signed int	LastModifiedUtcOffset
+1      signed int	LastAccessedUtcOffset
+
+The first byte is the attributes bit field.  The bits are
+Table: Attributes bit field
+Bit index	  Attribute
+0   ReadOnly 
+1   Hidden
+2   System
+3   not used ("Volume")
+4   Directory
+5   Archive
+6   not used ("Device")
+7   not used ("Reserved")
+
+The "Timestamp" fields record the time in local time, accurate to 2 seconds.  It is the number of seconds since midnight Jan. 1st, 1980, divided by 2.
+
+The "10msIncrement" fields record the time down to a 10ms resolution.  These unsigned integers can only have values from 0 to 199.
+
+The "UtcOffset" fields record the time difference between UTC and local time.  The unit is 15 minute increments.  The value 1 means that local time is UTC + 00:15.
+
+Note: Times are unsigned and relative to Jan. 1st, 1980.  This is different from UNIX times that are signed and relative to Jan. 1st. 1970.
+
+Note: The Timestamp fields are stored as unsigned ints, and not the year/month/day/hour/minute/doubleseconds format in the exFAT specification.
+
+Note: There is no LastAccessed10msIncrement.
+
+
 
 
 
@@ -691,11 +729,11 @@ Single-pass recovery is only possible in some cases.  If the packets do not arri
 
 Galois Field Encoding
 
-Parchive 3.0 supports any Galois Field that is a multiple of 2^8.  That is, any Galois Field that fits neatly in one or more bytes.  Clients must support every possible Galois field.
+Parchive 3.0 supports any Galois field that is a multiple of 2^8.  That is, any Galois field that fits neatly in one or more bytes.  Clients must support every possible Galois field.
 
 Clients are expected to optimize performance for specific Galois fields.  Some likely targets for optimization are:
 
-Table: Common Galois Fields
+Table: Common Galois fields
 Size (bits)    Generator (hexadecimal)
 8              0x11D
 16             0x1100B
@@ -734,12 +772,6 @@ If a file's contents have changed, it may be possible to reuse the data in the p
 
 Par Inside Another File
 
-\/ \/ \/ TODO \/ \/ \/
-
-Support empty filename to mean "this file".
-
-/\ /\ /\ TODO /\ /\ /\
-
 Par3 packets can be used to protect the file in which they are stored.  They cannot protect all of the file, because Par3 packets only protect the input data and not themselves.  When Par3 data is used inside another file format to protect it, we call it "Par inside".  So, if Par3 data protects a ZIP file, we call it "Par inside ZIP".
 
 An example of using Par-inside is with the ZIP file format.  The ZIP file format stores compressed files at the front and the list of all files at the end, but, inbetween, space can be used for any data without affecting the ZIP file's contents.  Par3 packets can put in this space.  The Par3 packets can protect the start and end of the file, where ZIP stores its data.  This way, if the file ever gets damaged, the Par3 packets can be used to fix the ZIP data.  It is a file that contains data to repair itself.
@@ -760,6 +792,19 @@ Still, some processors --- either old ones like ARMv5 or new ones with SIMD inst
 Par3 does not require packets to be aligned, but a client author can introduce alignment to Data packets and Recovery Data packets written by their client by choosing an appropriate block size and inserting zero-byte padding before these packets.  Remember, though, that a client must be able to read every file and not every client will generate aligned packets.  And, in any case, alignment in any file can be thrown off when a byte is lost or gained during transmission.  So, while a receiving client may run faster when a packet is aligned, it must still work properly if the packets are not aligned.  
 
 In short, a client author can introduce alignment into their own files to increase performance, but cannot require alignment in all files.  
+
+
+Rolling Hash:
+
+The rolling hash is intended to find input blocks that have moved inside an input file.  The rolling hash is fast, but imperfect.  Thus, the rolling hash matches, the client will test the possible input block with the slower-to-compute fingerprint hash.  But, when data is repetitive, this can lead to a problem.
+
+The problem with repetitive data is that many locations can match the rolling hash.  Then, the slower fingerprint hash is computed at all those locations and the process of finding input blocks slows to a snail's pace.
+
+This problem doesn't occur if the user compressed the data before writing the Par3 file, because a compressed file is almost random.  But the decoding client can't rely on the data being compressed.
+
+The decoding client solve the problem of many blocks matching the rolling hash in many ways.  One approach is to count the number of matches for each rolling hash value.  If there many matches over a small area of the file, the client can ignore that rolling hash value for a while.
+
+Another approach is to scan a file twice.  The first pass looks for all blocks that match the value of a rolling hash.  The second pass computes the fingerprint hashes, prioritizing blocks that match a unique rolling hash value and blocks that do not overlap other blocks.  
 
 
 Conventions:
@@ -807,5 +852,69 @@ Appendix B:
 \/ \/ \/ TODO \/ \/ \/
 
 License text
+
+/\ /\ /\ TODO /\ /\ /\
+
+
+
+\/ \/ \/ TODO \/ \/ \/
+
+NTFS Permissions Packet
+
+"Standard information": read-only, read/write, and so forth, timestamp, and link count.
+Short name (8.3 case-insensative format), POSIX name, and "shared namespace" name
+multiple named data attributes  (e.g., thumbnail icons, etc.)
+Object ID, Birth Volume Id, Birth Object Id,  Domain Id
+
+
+
+NTFS docs by Linux driver developers:
+https://dubeyko.com/development/FileSystems/NTFS/ntfsdoc.pdf
+
+
+https://docs.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2003/cc781134(v=ws.10)
+
+https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/a82e9105-2405-4e37-b2c3-28c773902d85
+
+$STANDARD_INFORMATION according to https://flatcap.org/linux-ntfs/ntfs/attributes/standard_information.html
+
+0x00 	8 	  	C Time - File Creation
+0x08 	8 	  	A Time - File Altered
+0x10 	8 	  	M Time - MFT Changed
+0x18 	8 	  	R Time - File Read
+0x20 	4 	  	DOS File Permissions
+0x24 	4 	  	Maximum Number of Versions
+0x28 	4 	  	Version Number
+0x2C 	4 	  	Class Id
+0x30 	4 	2K 	Owner Id
+0x34 	4 	2K 	Security Id
+0x38 	8 	2K 	Quota Charged
+0x40 	8 	2K 	Update Sequence Number (USN)
+
+$FILE_NAME according to https://flatcap.org/linux-ntfs/ntfs/attributes/file_name.html
+
+0x00 	8 	File reference to the parent directory.
+0x08 	8 	C Time - File Creation
+0x10 	8 	A Time - File Altered
+0x18 	8 	M Time - MFT Changed
+0x20 	8 	R Time - File Read
+0x28 	8 	Allocated size of the file
+0x30 	8 	Real size of the file
+0x38 	4 	Flags, e.g. Directory, compressed, hidden
+0x3c 	4 	Used by EAs and Reparse
+0x40 	1 	Filename length in characters (L)
+0x41 	1 	Filename namespace
+0x42 	2L 	File name in Unicode (not null terminated)
+
+Timestamps from https://www.forensixchange.com/posts/19_04_22_win10_ntfs_time_rules/
+
+NTFS timestamps are stored as 64-bit unsigned little-endian integers. The resolution of the timestamps is 100 nanoseconds counting from Jan 1, 1601, and all of them are stored in UTC format.
+
+$FILE_NAME timestamps can only be changed by kernel.  $STANDARD_INFORMATION ones can be changed by user.
+
+https://flylib.com/books/en/2.48.1/standard_file_attributes.html
+
+ACL access control list
+? "ADS = Alternative Data Stream"?
 
 /\ /\ /\ TODO /\ /\ /\
