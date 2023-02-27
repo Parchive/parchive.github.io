@@ -39,7 +39,7 @@ This document describes a file format for storing redundant data.  If any of the
 
 ## Table of Contents
 
-- [Introduction](introduction)
+- [Introduction](#introduction)
 - [Prerequisites](#prerequisites)
   - [Use Case](#use-case)
   - [Design Goals](#design-goals)
